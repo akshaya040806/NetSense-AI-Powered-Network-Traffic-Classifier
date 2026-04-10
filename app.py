@@ -7,6 +7,15 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
+import threading
+import collections
+
+# Catch scapy import errors if missing gracefully for UI warning
+try:
+    from scapy.all import sniff, IP, TCP, UDP
+    SCAPY_AVAILABLE = True
+except ImportError:
+    SCAPY_AVAILABLE = False
 
 # ─────────────────────────────────────────
 # PAGE CONFIG
@@ -242,68 +251,152 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────
+# BACKGROUND SNIFFER LOGIC
+# ─────────────────────────────────────────
+@st.cache_resource
+def get_packet_buffer():
+    return collections.deque(maxlen=2000)
+
+packet_buffer = get_packet_buffer()
+
+@st.cache_resource
+def get_stop_event():
+    return threading.Event()
+
+stop_event = get_stop_event()
+
+def packet_handler(pkt):
+    try:
+        if SCAPY_AVAILABLE:
+            from scapy.all import IP, TCP, UDP
+            if IP in pkt:
+                length = len(pkt)
+                proto = "TCP" if TCP in pkt else "UDP" if UDP in pkt else "OTHER"
+                packet_buffer.append({
+                    "Timestamp": time.time(),
+                    "Length": length,
+                    "Protocol": proto
+                })
+    except Exception:
+        pass
+
+def sniff_traffic():
+    try:
+        if not SCAPY_AVAILABLE:
+            packet_buffer.append({"Error": "ScapyNotInstalled"})
+            return
+        from scapy.all import sniff
+        sniff(prn=packet_handler, store=0, stop_filter=lambda x: stop_event.is_set())
+    except PermissionError:
+        packet_buffer.append({"Error": "PermissionError"})
+    except Exception as e:
+        packet_buffer.append({"Error": str(e)})
+
+if 'capturing' not in st.session_state:
+    st.session_state['capturing'] = False
+
+# ─────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────
-tab1, tab2 = st.tabs(["📂  Upload & Predict", "📊  Dashboard"])
+tab1, tab2 = st.tabs(["📡  Live Monitoring", "📊  Dashboard"])
 
 # ══════════════════════════════════════════
-# TAB 1 — UPLOAD & PREDICT
+# TAB 1 — LIVE MONITORING
 # ══════════════════════════════════════════
 with tab1:
-    st.markdown('<div class="section-header">Upload Packet Capture CSV</div>', unsafe_allow_html=True)
-    st.markdown('<div class="info-box">📌 CSV must have columns: <code>Timestamp</code>, <code>Length</code>, <code>Protocol</code> — as exported from Wireshark.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Live Network Traffic Interception</div>', unsafe_allow_html=True)
+    st.markdown('<div class="info-box">📌 Sniffing live packets on your network interface. Requires Streamlit to be run with root/sudo privileges.</div>', unsafe_allow_html=True)
+    
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        if not st.session_state['capturing']:
+            if st.button("▶️ Start Live Capture"):
+                st.session_state['capturing'] = True
+                stop_event.clear()
+                # Start background thread if not alive
+                if not any(t.name == "SniffThread" for t in threading.enumerate()):
+                    t = threading.Thread(target=sniff_traffic, name="SniffThread", daemon=True)
+                    t.start()
+                st.rerun()
+        else:
+            if st.button("⏸️ Pause Capture"):
+                st.session_state['capturing'] = False
+                stop_event.set()
+                st.rerun()
+                
+    with col_b:
+        if st.button("🗑️ Clear Buffer & Dashboard"):
+            packet_buffer.clear()
+            for key in ['df_raw', 'df_proc', 'preds', 'probs']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
 
-    uploaded_file = st.file_uploader("Drop your CSV here", type=["csv"])
+    # Determine if there's a fatal error
+    if len(packet_buffer) > 0 and 'Error' in packet_buffer[-1]:
+        err = packet_buffer[-1]['Error']
+        if "PermissionError" in err:
+            st.error("🛑 **CRITICAL ERROR: OPERATION NOT PERMITTED**")
+            st.warning("Scapy requires root/administrator privileges to open raw sockets for live interception.\\n\\nPlease stop this server and rerun it with:\\n`sudo /home/xded11/Github/cnproject/venv/bin/streamlit run app.py`")
+        elif "ScapyNotInstalled" in err:
+            st.error("🛑 **CRITICAL ERROR: Scapy Not Found**")
+            st.warning("Please install scapy (`pip install scapy`) before running live capture.")
+        else:
+            st.error(f"🛑 **Sniffer Error:** {err}")
+        st.stop()
 
-    if uploaded_file:
-        df_raw = pd.read_csv(uploaded_file)
-        st.success(f"✅ Loaded **{len(df_raw):,}** rows · Columns: {list(df_raw.columns)}")
-
-        with st.expander("🔍 Preview Raw Data"):
-            st.dataframe(df_raw.head(20), use_container_width=True)
-
-        if st.button("🚀 Run Classification"):
-            try:
-                model = load_model(model_path)
-            except Exception as e:
-                st.error(f"❌ Could not load model from `{model_path}`. Make sure the .pt file is in the same folder.\n\n`{e}`")
-                st.stop()
-
-            with st.spinner("Processing sequences and running LSTM..."):
+    # Process Current Queue
+    if st.session_state['capturing'] or len(packet_buffer) >= (timesteps + 1):
+        with st.spinner("Monitoring live network..." if st.session_state['capturing'] else "Processing recorded queue..."):
+            
+            # Slice safe copy of current packets
+            current_pkts = [p for p in packet_buffer if 'Error' not in p]
+            
+            if len(current_pkts) > timesteps:
+                df_raw = pd.DataFrame(current_pkts)
                 df_proc = preprocess(df_raw)
                 X_seq, features = make_sequences(df_proc, timesteps)
 
-                if len(X_seq) == 0:
-                    st.warning("⚠️ Not enough rows to form sequences. Need at least timesteps+1 rows.")
-                    st.stop()
-
-                preds, probs = predict(model, X_seq)
-                time.sleep(0.5)
-
-            # Store in session state for dashboard tab
-            st.session_state['preds'] = preds
-            st.session_state['probs'] = probs
-            st.session_state['df_proc'] = df_proc
-            st.session_state['df_raw'] = df_raw
+                if len(X_seq) > 0:
+                    try:
+                        model = load_model(model_path)
+                        preds, probs = predict(model, X_seq)
+                        
+                        st.session_state['preds'] = preds
+                        st.session_state['probs'] = probs
+                        st.session_state['df_proc'] = df_proc
+                        st.session_state['df_raw'] = df_raw
+                        
+                    except Exception as e:
+                        st.error(f"❌ Model prediction error. Is the `.pt` file valid? \\n\\n`{e}`")
+                        st.stop()
+            elif st.session_state['capturing']:
+                st.info(f"⏳ Waiting for packets. Captured {len(current_pkts)} / {timesteps+1} required for sequences...")
+                
+        if 'preds' in st.session_state:
+            preds = st.session_state['preds']
+            probs = st.session_state['probs']
 
             # ── Traffic Congestion Visual ──
-            avg_congestion = np.mean(preds)
-            if avg_congestion < 0.6:
+            # Only visualize the most recent prediction block for real-time responsiveness
+            recent_pred = preds[-1]
+            
+            if recent_pred == 0:
                 status = "✅ LOW TRAFFIC (CLEAR)"
                 color = "#34d399" # Green
-                anim_dur = "0.5s" # Fast moving
+                anim_dur = "0.5s" 
                 window_kb = "64"
                 window_pct = "100%"
-            elif avg_congestion < 1.6:
+            elif recent_pred == 1:
                 status = "⚠️ MEDIUM TRAFFIC"
                 color = "#fbbf24" # Yellow
-                anim_dur = "2.0s" # Medium moving
+                anim_dur = "2.0s"
                 window_kb = "32"
                 window_pct = "50%"
             else:
                 status = "🛑 HIGH CONGESTION!"
                 color = "#f87171" # Red
-                anim_dur = "6.0s" # Slow moving / clogged
+                anim_dur = "6.0s" 
                 window_kb = "8"
                 window_pct = "15%"
 
@@ -388,7 +481,7 @@ Dynamic TCP Window Size (cwnd): <strong style="color: {color}; font-size: 1.2rem
             with c1:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-value">{len(preds):,}</div>
-                    <div class="metric-label">Total Sequences</div></div>""", unsafe_allow_html=True)
+                    <div class="metric-label">Live Sequences</div></div>""", unsafe_allow_html=True)
             with c2:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-value" style="color:#60a5fa">{counts[0]:,}</div>
@@ -404,23 +497,21 @@ Dynamic TCP Window Size (cwnd): <strong style="color: {color}; font-size: 1.2rem
 
             # ── Results Table ──
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<div class="section-header">Prediction Results</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Last 5 Predictions</div>', unsafe_allow_html=True)
 
             result_df = pd.DataFrame({
-                'Sequence #': range(1, len(preds) + 1),
-                'Predicted Class': preds,
-                'Label': [LABEL_NAMES[p] for p in preds],
-                'P(Low)': np.round(probs[:, 0], 3),
-                'P(Medium)': np.round(probs[:, 1], 3),
-                'P(High)': np.round(probs[:, 2], 3),
+                'Sequence #': range(max(1, len(preds)-4), len(preds) + 1),
+                'Predicted Class': preds[-5:],
+                'Label': [LABEL_NAMES[p] for p in preds[-5:]],
+                'P(Low)': np.round(probs[-5:, 0], 3),
+                'P(Medium)': np.round(probs[-5:, 1], 3),
+                'P(High)': np.round(probs[-5:, 2], 3),
             })
-            st.dataframe(result_df, use_container_width=True, height=350)
+            st.dataframe(result_df, width=1000)
 
-            # Download
-            csv_out = result_df.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download Results CSV", csv_out, "predictions.csv", "text/csv")
+            st.info("🔀 Switch to the **Dashboard** tab to explore detailed live charts!")
 
-            st.info("🔀 Switch to the **Dashboard** tab to explore charts!")
+        # (Autorefresh trigger moved to bottom of script)
 
 
 # ══════════════════════════════════════════
@@ -428,7 +519,10 @@ Dynamic TCP Window Size (cwnd): <strong style="color: {color}; font-size: 1.2rem
 # ══════════════════════════════════════════
 with tab2:
     if 'preds' not in st.session_state:
-        st.markdown('<div class="info-box">⬅️ Upload a CSV and run classification first to see the dashboard.</div>', unsafe_allow_html=True)
+        if st.session_state.get('capturing', False):
+            st.info("📡 Live capture is waiting to accumulate enough network packets. Please wait a few seconds while we build the first traffic sequence...")
+        else:
+            st.markdown('<div class="info-box">⬅️ Return to the Live Monitoring tab and click **Start Live Capture** first.</div>', unsafe_allow_html=True)
         st.stop()
 
     preds = st.session_state['preds']
@@ -439,8 +533,9 @@ with tab2:
     st.markdown('<div class="section-header">TCP Congestion Window (AIMD Simulation)</div>', unsafe_allow_html=True)
 
     # ── TCP AIMD Simulation Graph ──
-    sim_length = min(len(preds), 40) # 40 looks cleaner than 60
-    sim_preds = preds[:sim_length]
+    # We want the MOST RECENT 40 predictions so the graph scrolls!
+    sim_length = min(len(preds), 40)
+    sim_preds = preds[-sim_length:]
     
     cwnd_history = []
     events = [] # stores (x, y, label, type)
@@ -497,7 +592,7 @@ with tab2:
             ax_tcp.vlines(x, ymin=0, ymax=y, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
             ax_tcp.hlines(y, xmin=0, xmax=x, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
         
-    ax_tcp.set_xlabel("Transmission Round", color='#94a3b8', fontsize=11, fontweight='bold')
+    ax_tcp.set_xlabel("Transmission Round (Latest 40)", color='#94a3b8', fontsize=11, fontweight='bold')
     ax_tcp.set_ylabel("Congestion Window Size", color='#94a3b8', fontsize=11, fontweight='bold')
     
     y_max_bound = max(cwnd_history)
@@ -513,7 +608,7 @@ with tab2:
     ax_tcp.spines['right'].set_visible(False)
     ax_tcp.grid(color='#1e293b', linestyle='-', linewidth=0.3, alpha=0.5)
     
-    st.pyplot(fig_tcp, use_container_width=True)
+    st.pyplot(fig_tcp, clear_figure=True)
     plt.close()
 
     st.markdown('<br><div class="section-header">Traffic Overview</div>', unsafe_allow_html=True)
@@ -522,37 +617,46 @@ with tab2:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**Class Distribution**")
+        st.markdown("**Class Distribution (Recent)**")
+        # Base pie off last 200 for responsiveness
+        recent_preds = preds[-200:]
         labels = [LABEL_NAMES[i] for i in range(3)]
-        counts = [int(np.sum(preds == i)) for i in range(3)]
+        counts = [int(np.sum(recent_preds == i)) for i in range(3)]
         colors = ["#60a5fa", "#34d399", "#f87171"]
 
         fig1, ax1 = plt.subplots(figsize=(4.5, 4))
         fig1.patch.set_facecolor('#0f172a')
         ax1.set_facecolor('#0f172a')
-        wedges, texts, autotexts = ax1.pie(
-            counts, labels=labels, autopct='%1.1f%%',
-            colors=colors, startangle=140,
-            textprops={'color': '#e0e6f0', 'fontsize': 10},
-            wedgeprops={'edgecolor': '#0b0f1a', 'linewidth': 2}
-        )
-        for at in autotexts:
-            at.set_color('#0b0f1a')
-            at.set_fontweight('bold')
+        
+        # Guard against empty pie charts pulling errors
+        if sum(counts) > 0:
+            wedges, texts, autotexts = ax1.pie(
+                counts, labels=labels, autopct='%1.1f%%',
+                colors=colors, startangle=140,
+                textprops={'color': '#e0e6f0', 'fontsize': 10},
+                wedgeprops={'edgecolor': '#0b0f1a', 'linewidth': 2}
+            )
+            for at in autotexts:
+                at.set_color('#0b0f1a')
+                at.set_fontweight('bold')
         ax1.set_title("Sequence Class Split", color='#94a3b8', fontsize=11)
-        st.pyplot(fig1, use_container_width=True)
+        st.pyplot(fig1, clear_figure=True)
         plt.close()
 
     with col2:
-        st.markdown("**Prediction Timeline**")
+        st.markdown("**Prediction Timeline (Latest 80)**")
         fig2, ax2 = plt.subplots(figsize=(5, 4))
         fig2.patch.set_facecolor('#0f172a')
         ax2.set_facecolor('#111827')
-        x = np.arange(len(preds))
+        
+        trace_preds = preds[-80:]
+        x = np.arange(len(trace_preds))
+        
         for cls, color in zip([0, 1, 2], colors):
-            mask = preds == cls
-            ax2.scatter(x[mask], preds[mask], c=color, s=6, alpha=0.7, label=LABEL_NAMES[cls])
-        ax2.set_xlabel("Sequence Index", color='#94a3b8')
+            mask = trace_preds == cls
+            ax2.scatter(x[mask], trace_preds[mask], c=color, s=15, alpha=0.8, label=LABEL_NAMES[cls])
+            
+        ax2.set_xlabel("Recent Sequence Index", color='#94a3b8')
         ax2.set_ylabel("Class", color='#94a3b8')
         ax2.set_yticks([0, 1, 2])
         ax2.set_yticklabels(['Low', 'Medium', 'High'], color='#e0e6f0')
@@ -563,7 +667,7 @@ with tab2:
         ax2.spines['right'].set_visible(False)
         ax2.legend(fontsize=8, facecolor='#1e293b', edgecolor='#334155', labelcolor='#e0e6f0')
         ax2.set_title("Predictions Over Time", color='#94a3b8', fontsize=11)
-        st.pyplot(fig2, use_container_width=True)
+        st.pyplot(fig2, clear_figure=True)
         plt.close()
 
     # ── Row 2: Confidence + Packet Rate ──
@@ -588,43 +692,45 @@ with tab2:
         ax3.spines['top'].set_visible(False)
         ax3.spines['right'].set_visible(False)
         ax3.set_title("Model Confidence by Class", color='#94a3b8', fontsize=11)
-        st.pyplot(fig3, use_container_width=True)
+        st.pyplot(fig3, clear_figure=True)
         plt.close()
 
     with col4:
-        st.markdown("**Packet Rate Over Time**")
+        st.markdown("**Packet Rate Over Time (Latest 200)**")
         fig4, ax4 = plt.subplots(figsize=(5, 3.5))
         fig4.patch.set_facecolor('#0f172a')
         ax4.set_facecolor('#111827')
-        rate = df_proc['packet_rate'].values[:500]
+        
+        # Take the most recent 200 items
+        rate = df_proc['packet_rate'].values[-200:]
         ax4.plot(rate, color='#38bdf8', linewidth=1, alpha=0.9)
         ax4.fill_between(range(len(rate)), rate, alpha=0.15, color='#38bdf8')
-        ax4.set_xlabel("Packet Index", color='#94a3b8')
+        ax4.set_xlabel("Recent Packet Index", color='#94a3b8')
         ax4.set_ylabel("Packet Rate", color='#94a3b8')
         ax4.tick_params(colors='#64748b')
         ax4.spines['bottom'].set_color('#1e293b')
         ax4.spines['left'].set_color('#1e293b')
         ax4.spines['top'].set_visible(False)
         ax4.spines['right'].set_visible(False)
-        ax4.set_title("Packet Rate (first 500)", color='#94a3b8', fontsize=11)
-        st.pyplot(fig4, use_container_width=True)
+        ax4.set_title("Packet Rate Trend", color='#94a3b8', fontsize=11)
+        st.pyplot(fig4, clear_figure=True)
         plt.close()
 
     # ── Probability Heatmap ──
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="section-header">Probability Heatmap (first 60 sequences)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Probability Heatmap (Latest 60 sequences)</div>', unsafe_allow_html=True)
 
     fig5, ax5 = plt.subplots(figsize=(12, 2.5))
     fig5.patch.set_facecolor('#0f172a')
     ax5.set_facecolor('#0f172a')
-    prob_sample = probs[:60].T
+    prob_sample = probs[-60:].T
     sns.heatmap(prob_sample, ax=ax5, cmap="YlOrRd", cbar=True,
-                xticklabels=10, yticklabels=["Low", "Medium", "High"],
+                xticklabels=5, yticklabels=["Low", "Med", "High"],
                 linewidths=0.3, linecolor='#0b0f1a')
-    ax5.set_xlabel("Sequence Index", color='#94a3b8')
+    ax5.set_xlabel("Recent Sequence Index", color='#94a3b8')
     ax5.tick_params(colors='#e0e6f0')
-    ax5.set_title("Class Probabilities Across Sequences", color='#94a3b8')
-    st.pyplot(fig5, use_container_width=True)
+    ax5.set_title("Class Probabilities Flow", color='#94a3b8')
+    st.pyplot(fig5, clear_figure=True)
     plt.close()
 
     # ── Packet Length Distribution ──
@@ -642,5 +748,14 @@ with tab2:
     ax6.spines['left'].set_color('#1e293b')
     ax6.spines['top'].set_visible(False)
     ax6.spines['right'].set_visible(False)
-    st.pyplot(fig6, use_container_width=True)
+    st.pyplot(fig6, clear_figure=True)
     plt.close()
+
+# ─────────────────────────────────────────
+# GLOBAL AUTOREFRESH LOOP
+# ─────────────────────────────────────────
+# Placed at the very end so Streamlit successfully renders Tab 1 and Tab 2
+# in the UI before it halts execution to rerun itself!
+if st.session_state.get('capturing', False):
+    time.sleep(2.5) # Increased to 2.5s to prevent Matplotlib 'MediaFileStorageError' race conditions
+    st.rerun()
