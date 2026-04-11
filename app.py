@@ -7,6 +7,16 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
+import threading
+import collections
+import scapy
+
+# Catch scapy import errors if missing gracefully for UI warning
+try:
+    from scapy.all import sniff, IP, TCP, UDP
+    SCAPY_AVAILABLE = True
+except ImportError:
+    SCAPY_AVAILABLE = False
 
 # ─────────────────────────────────────────
 # PAGE CONFIG
@@ -212,6 +222,33 @@ def predict(model, X_seq):
         probs = torch.softmax(outputs, dim=1).numpy()
     return preds, probs
 
+from scapy.all import rdpcap
+
+def parse_pcap(file):
+    packets = rdpcap(file)
+    data = []
+
+    for pkt in packets:
+        try:
+            if pkt.haslayer("IP"):
+                length = len(pkt)
+
+                if pkt.haslayer("TCP"):
+                    proto = "TCP"
+                elif pkt.haslayer("UDP"):
+                    proto = "UDP"
+                else:
+                    proto = "OTHER"
+
+                data.append({
+                    "Timestamp": pkt.time,
+                    "Length": length,
+                    "Protocol": proto
+                })
+        except:
+            continue
+
+    return pd.DataFrame(data)
 
 # ─────────────────────────────────────────
 # HEADER
@@ -242,49 +279,239 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────
+# BACKGROUND SNIFFER LOGIC
+# ─────────────────────────────────────────
+@st.cache_resource
+def get_packet_buffer():
+    return collections.deque(maxlen=2000)
+
+packet_buffer = get_packet_buffer()
+
+@st.cache_resource
+def get_stop_event():
+    return threading.Event()
+
+stop_event = get_stop_event()
+
+def packet_handler(pkt):
+    try:
+        if SCAPY_AVAILABLE:
+            from scapy.all import IP, TCP, UDP
+            if IP in pkt:
+                length = len(pkt)
+                proto = "TCP" if TCP in pkt else "UDP" if UDP in pkt else "OTHER"
+                packet_buffer.append({
+                    "Timestamp": time.time(),
+                    "Length": length,
+                    "Protocol": proto
+                })
+    except Exception:
+        pass
+
+def sniff_traffic():
+    try:
+        if not SCAPY_AVAILABLE:
+            packet_buffer.append({"Error": "ScapyNotInstalled"})
+            return
+        from scapy.all import sniff
+        sniff(prn=packet_handler, store=0, stop_filter=lambda x: stop_event.is_set())
+    except PermissionError:
+        packet_buffer.append({"Error": "PermissionError"})
+    except Exception as e:
+        packet_buffer.append({"Error": str(e)})
+
+if 'capturing' not in st.session_state:
+    st.session_state['capturing'] = False
+
+# ─────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────
-tab1, tab2 = st.tabs(["📂  Upload & Predict", "📊  Dashboard"])
+tab1, tab2 = st.tabs(["Live Monitoring", "Dashboard"])
+mode = None 
 
 # ══════════════════════════════════════════
-# TAB 1 — UPLOAD & PREDICT
+# TAB 1 — LIVE MONITORING
 # ══════════════════════════════════════════
 with tab1:
-    st.markdown('<div class="section-header">Upload Packet Capture CSV</div>', unsafe_allow_html=True)
-    st.markdown('<div class="info-box">📌 CSV must have columns: <code>Timestamp</code>, <code>Length</code>, <code>Protocol</code> — as exported from Wireshark.</div>', unsafe_allow_html=True)
+    mode = st.radio("Select Data Source", ["🔴 Live Capture (Npcap)", "📂 Upload PCAP File"],horizontal=True)
+    
+    if mode == "🔴 Live Capture (Npcap)":
+        st.markdown('<div class="section-header">Live Network Traffic Interception</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-box">Sniffing live packets on your network interface. Requires Streamlit to be run with root/sudo privileges.</div>', unsafe_allow_html=True)
+    
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            if not st.session_state['capturing']:
+                if st.button("▶️ Start Live Capture"):
+                    st.session_state['capturing'] = True
+                    stop_event.clear()
+                    # Start background thread if not alive
+                    if not any(t.name == "SniffThread" for t in threading.enumerate()):
+                        t = threading.Thread(target=sniff_traffic, name="SniffThread", daemon=True)
+                        t.start()
+                    st.rerun()
+            else:
+                if st.button("⏸️ Pause Capture"):
+                    st.session_state['capturing'] = False
+                    stop_event.set()
+                    st.rerun()
+                    
+        with col_b:
+            if st.button("🗑️ Clear Buffer & Dashboard"):
+                packet_buffer.clear()
+                for key in ['df_raw', 'df_proc', 'preds', 'probs']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
 
-    uploaded_file = st.file_uploader("Drop your CSV here", type=["csv"])
+        # Determine if there's a fatal error
+        if len(packet_buffer) > 0 and 'Error' in packet_buffer[-1]:
+            err = packet_buffer[-1]['Error']
+            if "PermissionError" in err:
+                st.error("🛑 **CRITICAL ERROR: OPERATION NOT PERMITTED**")
+                st.warning("Scapy requires root/administrator privileges to open raw sockets for live interception.\\n\\nPlease stop this server and rerun it with:\\n`sudo /home/xded11/Github/cnproject/venv/bin/streamlit run app.py`")
+            elif "ScapyNotInstalled" in err:
+                st.error("🛑 **CRITICAL ERROR: Scapy Not Found**")
+                st.warning("Please install scapy (`pip install scapy`) before running live capture.")
+            else:
+                st.error(f"🛑 **Sniffer Error:** {err}")
+            st.stop()
+        
+        if st.session_state['capturing'] and len(packet_buffer) < (timesteps + 1):
+            st.info(f"⏳ Waiting for packets... {len(packet_buffer)}/{timesteps+1}")
+        # Process Current Queue
+        if len(packet_buffer) >= (timesteps + 1):
+            with st.spinner("Monitoring live network..." if st.session_state['capturing'] else "Processing recorded queue..."):
+                
+                # Slice safe copy of current packets
+                current_pkts = [p for p in packet_buffer if 'Error' not in p]
+                
+                if len(current_pkts) > timesteps:
+                    df_raw = pd.DataFrame(current_pkts)
+                    df_proc = preprocess(df_raw)
+                    X_seq, features = make_sequences(df_proc, timesteps)
 
-    if uploaded_file:
-        df_raw = pd.read_csv(uploaded_file)
-        st.success(f"✅ Loaded **{len(df_raw):,}** rows · Columns: {list(df_raw.columns)}")
+                    if len(X_seq) > 0:
+                        try:
+                            model = load_model(model_path)
+                            preds, probs = predict(model, X_seq)
+                            
+                            st.session_state['preds'] = preds
+                            st.session_state['probs'] = probs
+                            st.session_state['df_proc'] = df_proc
+                            st.session_state['df_raw'] = df_raw
+                            
+                        except Exception as e:
+                            st.error(f"❌ Model prediction error. Is the `.pt` file valid? \\n\\n`{e}`")
+                            st.stop()
+                elif st.session_state['capturing']:
+                    st.info(f"⏳ Waiting for packets. Captured {len(current_pkts)} / {timesteps+1} required for sequences...")
+            
+            
+            #st.write("DEBUG preds:", st.session_state.get('preds'))
+            #st.write("DEBUG length:", len(st.session_state.get('preds', [])))
+            
+            preds = st.session_state.get('preds', [])
 
-        with st.expander("🔍 Preview Raw Data"):
-            st.dataframe(df_raw.head(20), use_container_width=True)
-
-        if st.button("🚀 Run Classification"):
-            try:
-                model = load_model(model_path)
-            except Exception as e:
-                st.error(f"❌ Could not load model from `{model_path}`. Make sure the .pt file is in the same folder.\n\n`{e}`")
+            # 🚨 ABSOLUTE SAFETY CHECK (handles ALL cases)
+            if not isinstance(preds, (list, np.ndarray)) or len(preds) == 0:
+                st.warning("⏳ Waiting for predictions... (need more packets)")
                 st.stop()
 
-            with st.spinner("Processing sequences and running LSTM..."):
-                df_proc = preprocess(df_raw)
-                X_seq, features = make_sequences(df_proc, timesteps)
+            # ✅ SAFE ACCESS (will NEVER crash now)
+            recent_pred = preds[-1] if isinstance(preds, (list, np.ndarray)) and len(preds) > 0 else 0
+                
+            if recent_pred == 0:
+                status = "✅ LOW TRAFFIC (CLEAR)"
+                color = "#34d399" # Green
+                anim_dur = "0.5s" 
+                window_kb = "64"
+                window_pct = "100%"
+            elif recent_pred == 1:
+                status = "⚠️ MEDIUM TRAFFIC"
+                color = "#fbbf24" # Yellow
+                anim_dur = "2.0s"
+                window_kb = "32"
+                window_pct = "50%"
+            else:
+                status = "🛑 HIGH CONGESTION!"
+                color = "#f87171" # Red
+                anim_dur = "6.0s" 
+                window_kb = "8"
+                window_pct = "15%"
 
-                if len(X_seq) == 0:
-                    st.warning("⚠️ Not enough rows to form sequences. Need at least timesteps+1 rows.")
-                    st.stop()
+            unique_id = color.replace('#','')
+            html_string = f"""
+            <style>
+            @keyframes pulse-glow-{unique_id} {{
+            0% {{ box-shadow: 0 0 5px {color}, 0 0 10px {color}; }}
+            50% {{ box-shadow: 0 0 20px {color}, 0 0 30px {color}; }}
+            100% {{ box-shadow: 0 0 5px {color}, 0 0 10px {color}; }}
+            }}
+            @keyframes flow-data-{unique_id} {{
+            0% {{ background-position: 200px 0; }}
+            100% {{ background-position: 0 0; }}
+            }}
+            .traffic-pipe-{unique_id} {{
+            height: 35px;
+            background: #0b0f1a;
+            border-radius: 18px;
+            border: 2px solid rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+            margin: 0;
+            width: {window_pct};
+            transition: width 1s ease-in-out;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.9), 0 0 15px {color};
+            }}
+            .data-stream-{unique_id} {{
+            width: 200%;
+            height: 100%;
+            background-image: repeating-linear-gradient(
+            -45deg,
+            {color} 0,
+            {color} 15px,
+            transparent 15px,
+            transparent 30px
+            );
+            animation: flow-data-{unique_id} {anim_dur} linear infinite;
+            opacity: 0.85;
+            }}
+            .status-badge-{unique_id} {{
+            animation: pulse-glow-{unique_id} 2s infinite;
+            color: #111827;
+            background: {color};
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-family: 'Space Mono', monospace;
+            font-weight: 700;
+            font-size: 1.1rem;
+            display: inline-block;
+            }}
+            .window-size-label {{
+            font-family: 'Space Mono', monospace;
+            font-size: 1.05rem;
+            color: #e0e6f0;
+            margin-top: 20px;
+            }}
+            </style>
+            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(56,189,248,0.2); border-radius: 12px; padding: 2rem; text-align: center; margin-top: 2rem;">
+            <div style="font-family: 'Space Mono', monospace; font-size: 1.2rem; color: #38bdf8; margin-bottom: 15px; letter-spacing: 1px; text-transform: uppercase;">Real-Time Congestion Control</div>
+            <div class="status-badge-{unique_id}">{status}</div>
+            <br>
+            <div class="window-size-label">
+            Dynamic TCP Window Size (cwnd): <strong style="color: {color}; font-size: 1.2rem;">{window_kb} KB</strong>
+            </div>
+            <div style="width: 90%; background: rgba(0,0,0,0.4); height: 50px; border-radius: 25px; margin: 15px auto 20px; border: 1px dashed rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: flex-start; padding: 5px;">
+            <div class="traffic-pipe-{unique_id}">
+            <div class="data-stream-{unique_id}"></div>
+            </div>
+            </div>
+            <div style="font-size: 0.9rem; color: #94a3b8; font-family: 'Inter', sans-serif;">When the AI detects high traffic, the simulated TCP connection throttles the window size to prevent packet collision and loss.</div>
+            </div>
+            """
+            st.markdown(html_string, unsafe_allow_html=True)
 
-                preds, probs = predict(model, X_seq)
-                time.sleep(0.5)
-
-            # Store in session state for dashboard tab
-            st.session_state['preds'] = preds
-            st.session_state['probs'] = probs
-            st.session_state['df_proc'] = df_proc
-            st.session_state['df_raw'] = df_raw
 
             # ── Metrics Row ──
             st.markdown("<br>", unsafe_allow_html=True)
@@ -294,7 +521,7 @@ with tab1:
             with c1:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-value">{len(preds):,}</div>
-                    <div class="metric-label">Total Sequences</div></div>""", unsafe_allow_html=True)
+                    <div class="metric-label">Live Sequences</div></div>""", unsafe_allow_html=True)
             with c2:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-value" style="color:#60a5fa">{counts[0]:,}</div>
@@ -310,147 +537,261 @@ with tab1:
 
             # ── Results Table ──
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown('<div class="section-header">Prediction Results</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Last 5 Predictions</div>', unsafe_allow_html=True)
 
             result_df = pd.DataFrame({
-                'Sequence #': range(1, len(preds) + 1),
-                'Predicted Class': preds,
-                'Label': [LABEL_NAMES[p] for p in preds],
-                'P(Low)': np.round(probs[:, 0], 3),
-                'P(Medium)': np.round(probs[:, 1], 3),
-                'P(High)': np.round(probs[:, 2], 3),
+                'Sequence #': range(max(1, len(preds)-4), len(preds) + 1),
+                'Predicted Class': preds[-5:],
+                'Label': [LABEL_NAMES[p] for p in preds[-5:]],
+                'P(Low)': np.round(probs[-5:, 0], 3),
+                'P(Medium)': np.round(probs[-5:, 1], 3),
+                'P(High)': np.round(probs[-5:, 2], 3),
             })
-            st.dataframe(result_df, use_container_width=True, height=350)
+            st.dataframe(result_df, width=1000)
 
-            # Download
-            csv_out = result_df.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download Results CSV", csv_out, "predictions.csv", "text/csv")
+            st.info("🔀 Switch to the **Dashboard** tab to explore detailed live charts!")
 
-            st.info("🔀 Switch to the **Dashboard** tab to explore charts!")
+        # (Autorefresh trigger moved to bottom of script)
+        
+    elif mode == "📂 Upload PCAP File":
 
+        st.markdown('<div class="section-header">PCAP File Analysis</div>', unsafe_allow_html=True)
+        st.write("✅ YOU ARE IN PCAP MODE")  # 🔥 DEBUG LINE
 
+        uploaded_pcap = st.file_uploader("Upload PCAP file", type=["pcap", "pcapng"])
+
+        if uploaded_pcap is not None:
+
+            st.success("File uploaded!")
+
+            df_raw = parse_pcap(uploaded_pcap)
+
+            if df_raw.empty:
+                st.error("No packets found")
+                st.stop()
+
+            df_proc = preprocess(df_raw)
+            X_seq, features = make_sequences(df_proc, timesteps)
+
+            if len(X_seq) == 0:
+                st.warning("Not enough data")
+                st.stop()
+
+            model = load_model(model_path)
+            preds, probs = predict(model, X_seq)
+
+            st.session_state['preds'] = preds
+            st.session_state['probs'] = probs
+            st.session_state['df_proc'] = df_proc
+            st.session_state['df_raw'] = df_raw
+
+            st.success("✅ PCAP processed!")
+            st.info("👉 Go to Dashboard tab")
+
+    
 # ══════════════════════════════════════════
 # TAB 2 — DASHBOARD
 # ══════════════════════════════════════════
 with tab2:
+    
     if 'preds' not in st.session_state:
-        st.markdown('<div class="info-box">⬅️ Upload a CSV and run classification first to see the dashboard.</div>', unsafe_allow_html=True)
+        st.session_state['preds'] = []
+
+    if 'probs' not in st.session_state:
+        st.session_state['probs'] = []
+
+    if 'df_proc' not in st.session_state:
+        st.session_state['df_proc'] = None
+
+    if 'df_raw' not in st.session_state:
+        st.session_state['df_raw'] = None
+    
+    if 'preds' not in st.session_state or st.session_state['preds'] is None or len(st.session_state['preds']) == 0:
+        if st.session_state.get('capturing', False):
+            st.info("📡 Live capture is waiting to accumulate enough network packets. Please wait a few seconds while we build the first traffic sequence...")
+        else:
+            st.markdown('<div class="info-box">⬅️ Go to **Live Monitoring** tab and either:<br>'
+            '• Start Live Capture 🔴<br>' 
+            '• OR Upload a PCAP file 📂<br><br>'
+            'Then return here for congestion analysis.</div>',unsafe_allow_html=True)
         st.stop()
+
 
     preds = st.session_state['preds']
     probs = st.session_state['probs']
     df_proc = st.session_state['df_proc']
     df_raw = st.session_state['df_raw']
 
-    st.markdown('<div class="section-header">Traffic Overview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">TCP Congestion Window (AIMD Simulation)</div>', unsafe_allow_html=True)
 
+    # ── TCP AIMD Simulation Graph ──
+    # We want the MOST RECENT 40 predictions so the graph scrolls!
+    sim_length = min(len(preds), 40)
+    sim_preds = preds[-sim_length:]
+    
+    cwnd_history = []
+    events = [] # stores (x, y, label, type)
+    cwnd = 1.0
+    ssthresh = 32.0 # Standard start
+    
+    can_annotate = True
+    
+    for t, p in enumerate(sim_preds):
+        cwnd_history.append(cwnd)
+        
+        if cwnd >= 6.0:
+            can_annotate = True
+            
+        if p == 0:  # CLEAR: Grow window
+            if cwnd < ssthresh:
+                # Slow Start -> cwnd = cwnd * 2
+                cwnd = min(cwnd * 2, ssthresh) if cwnd * 2 <= ssthresh else cwnd + 1 
+            else:
+                # Congestion Avoidance -> cwnd = cwnd + 1
+                cwnd += 1  
+        elif p == 1:  # MEDIUM TRAFFIC: 3 Duplicate ACKs
+            ssthresh = max(2.0, cwnd // 2)
+            if can_annotate and cwnd >= 4.0:
+                events.append((t, cwnd_history[-1], f"3 Ack SS thresh = {int(ssthresh)}", '3ack'))
+                can_annotate = False
+            else:
+                events.append((t, cwnd_history[-1], "", 'quiet'))
+            cwnd = ssthresh
+        elif p == 2:  # HIGH CONGESTION: Timeout
+            ssthresh = max(2.0, cwnd // 2)
+            if can_annotate and cwnd >= 4.0:
+                events.append((t, cwnd_history[-1], f"Time Out SSthresh = {int(ssthresh)}", 'timeout'))
+                can_annotate = False
+            else:
+                events.append((t, cwnd_history[-1], "", 'quiet'))
+            cwnd = 1.0
+            
+    fig_tcp, ax_tcp = plt.subplots(figsize=(10, 4))
+    fig_tcp.patch.set_facecolor('#0f172a')
+    ax_tcp.set_facecolor('#111827')
+    
+    x_vals = np.arange(len(cwnd_history))
+    ax_tcp.plot(x_vals, cwnd_history, color='#0ea5e9', linewidth=2.5, marker='o', markersize=5, markerfacecolor='#ef4444')
+    
+    for (x, y, label, ev_type) in events:
+        ax_tcp.plot(x, y, marker='o', color='#ef4444', markersize=8)
+        
+        if label != "":
+            y_offset = -6 if ev_type == '3ack' else 6
+            x_offset = 1 if ev_type == 'timeout' else 0.5
+            ax_tcp.annotate(label, (x, y), xytext=(x+x_offset, y+y_offset), color='#e0e6f0', fontsize=10, fontweight='bold')
+            
+            ax_tcp.vlines(x, ymin=0, ymax=y, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
+            ax_tcp.hlines(y, xmin=0, xmax=x, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
+        
+    ax_tcp.set_xlabel("Transmission Round (Latest 40)", color='#94a3b8', fontsize=11, fontweight='bold')
+    ax_tcp.set_ylabel("Congestion Window Size", color='#94a3b8', fontsize=11, fontweight='bold')
+    
+    y_max_bound = max(cwnd_history)
+    y_max_bound = y_max_bound + 15 if y_max_bound > 0 else 40
+    ax_tcp.set_ylim(0, y_max_bound)
+    ax_tcp.set_xlim(0, len(cwnd_history))
+    
+    ax_tcp.set_xticks(np.arange(0, len(cwnd_history)+1, 2))
+    ax_tcp.tick_params(colors='#e0e6f0', labelsize=10)
+    ax_tcp.spines['bottom'].set_color('#1e293b')
+    ax_tcp.spines['left'].set_color('#1e293b')
+    ax_tcp.spines['top'].set_visible(False)
+    ax_tcp.spines['right'].set_visible(False)
+    ax_tcp.grid(color='#1e293b', linestyle='-', linewidth=0.3, alpha=0.5)
+    
+    st.pyplot(fig_tcp, clear_figure=True)
+    plt.close()
+
+    st.markdown('<br><div class="section-header">Traffic Overview</div>', unsafe_allow_html=True)
+    
     # ── Row 1: Pie + Bar ──
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**Class Distribution**")
+        st.markdown("**Class Distribution (Recent)**")
+        # Base pie off last 200 for responsiveness
+        recent_preds = preds[-200:]
         labels = [LABEL_NAMES[i] for i in range(3)]
-        counts = [int(np.sum(preds == i)) for i in range(3)]
+        counts = [int(np.sum(recent_preds == i)) for i in range(3)]
         colors = ["#60a5fa", "#34d399", "#f87171"]
 
         fig1, ax1 = plt.subplots(figsize=(4.5, 4))
         fig1.patch.set_facecolor('#0f172a')
         ax1.set_facecolor('#0f172a')
-        wedges, texts, autotexts = ax1.pie(
-            counts, labels=labels, autopct='%1.1f%%',
-            colors=colors, startangle=140,
-            textprops={'color': '#e0e6f0', 'fontsize': 10},
-            wedgeprops={'edgecolor': '#0b0f1a', 'linewidth': 2}
-        )
-        for at in autotexts:
-            at.set_color('#0b0f1a')
-            at.set_fontweight('bold')
+        
+        # Guard against empty pie charts pulling errors
+        if sum(counts) > 0:
+            wedges, texts, autotexts = ax1.pie(
+                counts, labels=labels, autopct='%1.1f%%',
+                colors=colors, startangle=140,
+                textprops={'color': '#e0e6f0', 'fontsize': 10},
+                wedgeprops={'edgecolor': '#0b0f1a', 'linewidth': 2}
+            )
+            for at in autotexts:
+                at.set_color('#0b0f1a')
+                at.set_fontweight('bold')
         ax1.set_title("Sequence Class Split", color='#94a3b8', fontsize=11)
-        st.pyplot(fig1, use_container_width=True)
+        st.pyplot(fig1, clear_figure=True)
         plt.close()
 
-    with col2:
-        st.markdown("**Prediction Timeline**")
+        st.markdown("**Prediction Timeline (Latest 80)**")
         fig2, ax2 = plt.subplots(figsize=(5, 4))
         fig2.patch.set_facecolor('#0f172a')
         ax2.set_facecolor('#111827')
-        x = np.arange(len(preds))
-        for cls, color in zip([0, 1, 2], colors):
-            mask = preds == cls
-            ax2.scatter(x[mask], preds[mask], c=color, s=6, alpha=0.7, label=LABEL_NAMES[cls])
-        ax2.set_xlabel("Sequence Index", color='#94a3b8')
-        ax2.set_ylabel("Class", color='#94a3b8')
+
+        trace_preds = preds[-80:]
+        x = np.arange(len(trace_preds))
+
+        # 🔥 Convert to smooth signal
+        y = np.array(trace_preds, dtype=float)
+
+        # Smooth it (important)
+        window = 5
+        y_smooth = np.convolve(y, np.ones(window)/window, mode='same')
+
+        # Base line
+        ax2.plot(x, y_smooth, color="#38bdf8", linewidth=2)
+
+        # Highlight peaks
+        for i in range(len(y_smooth)):
+            if trace_preds[i] == 2:
+                ax2.plot(x[i], y_smooth[i], 'o', color='#ef4444', markersize=6)  # red peak
+            elif trace_preds[i] == 0:
+                ax2.plot(x[i], y_smooth[i], 'o', color='#22c55e', markersize=4)  # green
+
+        # Labels
         ax2.set_yticks([0, 1, 2])
         ax2.set_yticklabels(['Low', 'Medium', 'High'], color='#e0e6f0')
+
+        ax2.set_xlabel("Recent Sequence Index", color='#94a3b8')
+        ax2.set_ylabel("Traffic Level", color='#94a3b8')
+
         ax2.tick_params(colors='#64748b')
+
         ax2.spines['bottom'].set_color('#1e293b')
         ax2.spines['left'].set_color('#1e293b')
         ax2.spines['top'].set_visible(False)
         ax2.spines['right'].set_visible(False)
-        ax2.legend(fontsize=8, facecolor='#1e293b', edgecolor='#334155', labelcolor='#e0e6f0')
-        ax2.set_title("Predictions Over Time", color='#94a3b8', fontsize=11)
-        st.pyplot(fig2, use_container_width=True)
-        plt.close()
 
-    # ── Row 2: Confidence + Packet Rate ──
-    st.markdown("<br>", unsafe_allow_html=True)
-    col3, col4 = st.columns(2)
+        ax2.set_title("Smoothed Traffic Flow", color='#94a3b8')
 
-    with col3:
-        st.markdown("**Average Confidence per Class**")
-        avg_conf = [probs[preds == i, i].mean() if np.sum(preds == i) > 0 else 0 for i in range(3)]
-        fig3, ax3 = plt.subplots(figsize=(4.5, 3.5))
-        fig3.patch.set_facecolor('#0f172a')
-        ax3.set_facecolor('#111827')
-        bars = ax3.bar(LABEL_NAMES.values(), avg_conf, color=colors, edgecolor='#0b0f1a', linewidth=1.5)
-        for bar, val in zip(bars, avg_conf):
-            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                     f'{val:.2f}', ha='center', color='#e0e6f0', fontsize=9, fontweight='bold')
-        ax3.set_ylim(0, 1.1)
-        ax3.set_ylabel("Avg Confidence", color='#94a3b8')
-        ax3.tick_params(colors='#64748b')
-        ax3.spines['bottom'].set_color('#1e293b')
-        ax3.spines['left'].set_color('#1e293b')
-        ax3.spines['top'].set_visible(False)
-        ax3.spines['right'].set_visible(False)
-        ax3.set_title("Model Confidence by Class", color='#94a3b8', fontsize=11)
-        st.pyplot(fig3, use_container_width=True)
-        plt.close()
-
-    with col4:
-        st.markdown("**Packet Rate Over Time**")
-        fig4, ax4 = plt.subplots(figsize=(5, 3.5))
-        fig4.patch.set_facecolor('#0f172a')
-        ax4.set_facecolor('#111827')
-        rate = df_proc['packet_rate'].values[:500]
-        ax4.plot(rate, color='#38bdf8', linewidth=1, alpha=0.9)
-        ax4.fill_between(range(len(rate)), rate, alpha=0.15, color='#38bdf8')
-        ax4.set_xlabel("Packet Index", color='#94a3b8')
-        ax4.set_ylabel("Packet Rate", color='#94a3b8')
-        ax4.tick_params(colors='#64748b')
-        ax4.spines['bottom'].set_color('#1e293b')
-        ax4.spines['left'].set_color('#1e293b')
-        ax4.spines['top'].set_visible(False)
-        ax4.spines['right'].set_visible(False)
-        ax4.set_title("Packet Rate (first 500)", color='#94a3b8', fontsize=11)
-        st.pyplot(fig4, use_container_width=True)
-        plt.close()
-
+        st.pyplot(fig2)
     # ── Probability Heatmap ──
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="section-header">Probability Heatmap (first 60 sequences)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Probability Heatmap (Latest 60 sequences)</div>', unsafe_allow_html=True)
 
     fig5, ax5 = plt.subplots(figsize=(12, 2.5))
     fig5.patch.set_facecolor('#0f172a')
     ax5.set_facecolor('#0f172a')
-    prob_sample = probs[:60].T
+    prob_sample = probs[-60:].T
     sns.heatmap(prob_sample, ax=ax5, cmap="YlOrRd", cbar=True,
-                xticklabels=10, yticklabels=["Low", "Medium", "High"],
+                xticklabels=5, yticklabels=["Low", "Med", "High"],
                 linewidths=0.3, linecolor='#0b0f1a')
-    ax5.set_xlabel("Sequence Index", color='#94a3b8')
+    ax5.set_xlabel("Recent Sequence Index", color='#94a3b8')
     ax5.tick_params(colors='#e0e6f0')
-    ax5.set_title("Class Probabilities Across Sequences", color='#94a3b8')
-    st.pyplot(fig5, use_container_width=True)
+    ax5.set_title("Class Probabilities Flow", color='#94a3b8')
+    st.pyplot(fig5, clear_figure=True)
     plt.close()
 
     # ── Packet Length Distribution ──
@@ -468,5 +809,14 @@ with tab2:
     ax6.spines['left'].set_color('#1e293b')
     ax6.spines['top'].set_visible(False)
     ax6.spines['right'].set_visible(False)
-    st.pyplot(fig6, use_container_width=True)
+    st.pyplot(fig6, clear_figure=True)
     plt.close()
+
+# ─────────────────────────────────────────
+# GLOBAL AUTOREFRESH LOOP
+# ─────────────────────────────────────────
+# Placed at the very end so Streamlit successfully renders Tab 1 and Tab 2
+# in the UI before it halts execution to rerun itself!
+if st.session_state.get('capturing', False):
+    time.sleep(2.5) # Increased to 2.5s to prevent Matplotlib 'MediaFileStorageError' race conditions
+    st.rerun()
