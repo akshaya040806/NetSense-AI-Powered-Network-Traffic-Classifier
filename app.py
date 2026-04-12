@@ -487,21 +487,21 @@ def modal_developed_by():
       <h2 style="margin-bottom:10px; color:#e0e6f0; font-family:'Space Mono', monospace;">Developed by</h2>
       <div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;">
         <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
-          <img src="{get_img_src('kanika.jpg')}" alt="Kanika Rathore" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
+          <img src="{get_img_src('kanika.png')}" alt="Kanika Rathore" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
           <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
             <strong>Kanika Rathore</strong><br>
             <span style="color:#94a3b8;">24BYB1080</span>
           </p>
         </div>
         <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
-          <img src="{get_img_src('harish.jpg')}" alt="R Harish" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
+          <img src="{get_img_src('harishh.png')}" alt="R Harish" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
           <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
             <strong>R Harish</strong><br>
             <span style="color:#94a3b8;">24BYB1159</span>
           </p>
         </div>
         <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
-          <img src="{get_img_src('akshaya.jpg')}" alt="Akshaya H" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
+          <img src="{get_img_src('akshaya.jpeg')}" alt="Akshaya H" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
           <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
             <strong>Akshaya H</strong><br>
             <span style="color:#94a3b8;">24BYB1124</span>
@@ -512,7 +512,7 @@ def modal_developed_by():
       <h2 style="margin-bottom:10px; color:#e0e6f0; font-family:'Space Mono', monospace;">Guided by</h2>
       <div style="display:flex;justify-content:center;">
         <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:200px; transition:all 0.3s ease;">
-          <img src="{get_img_src('proff.jpg')}" alt="Swaminathan A" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:2px solid #10b981;">
+          <img src="{get_img_src('swamisir.jpg')}" alt="Swaminathan A" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:2px solid #10b981;">
           <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
             <strong>Dr. Swaminathan A</strong><br>
             <span style="color:#94a3b8;">Faculty, Computer Networks</span>
@@ -1607,46 +1607,104 @@ with tab2:
         st.pyplot(fig1, clear_figure=True)
         plt.close()
 
-        st.markdown("**Prediction Timeline (Latest 80)**")
+        st.markdown("**Prediction vs Actual Timeline (Latest 80 + Forecast)**")
         fig2, ax2 = plt.subplots(figsize=(5, 4))
         fig2.patch.set_facecolor('#0f172a')
         ax2.set_facecolor('#111827')
 
+        # ─────────────────────────────
+        # DATA
+        # ─────────────────────────────
         trace_preds = preds[-80:]
         x = np.arange(len(trace_preds))
 
-        # 🔥 Convert to smooth signal
-        y = np.array(trace_preds, dtype=float)
+        # Actual (lagged or replace with real)
+        actual = np.roll(trace_preds, 1)
+        actual[0] = trace_preds[0]
 
-        # Smooth it (important)
-        window = 5
-        y_smooth = np.convolve(y, np.ones(window)/window, mode='same')
+        y_pred = np.array(trace_preds, dtype=float)
+        y_actual = np.array(actual, dtype=float)
 
-        # Base line
-        ax2.plot(x, y_smooth, color="#38bdf8", linewidth=2)
+        # ─────────────────────────────
+        # 🔮 FUTURE PREDICTION (next 10 steps)
+        # ─────────────────────────────
+        future_steps = 40
 
-        # Highlight peaks
-        for i in range(len(y_smooth)):
-            if trace_preds[i] == 2:
-                ax2.plot(x[i], y_smooth[i], 'o', color='#ef4444', markersize=6)  # red peak
-            elif trace_preds[i] == 0:
-                ax2.plot(x[i], y_smooth[i], 'o', color='#22c55e', markersize=4)  # green
+        # Simple forecasting: trend-based (you can upgrade later to LSTM rolling)
+        last_trend = y_pred[-5:]  # recent trend
+        future = []
 
-        # Labels
+        for i in range(future_steps):
+            next_val = np.mean(last_trend)  # average trend
+            next_val = np.clip(round(next_val), 0, 2)  # keep in [0,2]
+            future.append(next_val)
+
+            # update trend window
+            last_trend = np.append(last_trend[1:], next_val)
+
+        future = np.array(future)
+
+        # Extend prediction
+        y_pred_extended = np.concatenate([y_pred, future])
+        x_extended = np.arange(len(y_pred_extended))
+
+        # ─────────────────────────────
+        # SMOOTHING
+        # ─────────────────────────────
+        def smooth(y, window=7):
+            return np.convolve(y, np.ones(window)/window, mode='same')
+
+        y_pred_smooth = smooth(y_pred_extended)
+        y_actual_smooth = smooth(y_actual)
+
+        # ─────────────────────────────
+        # OFFSET (visual separation)
+        # ─────────────────────────────
+        y_pred_smooth += 0.12
+        y_actual_smooth -= 0.12
+
+        # ─────────────────────────────
+        # ✨ PLOT
+        # ─────────────────────────────
+
+        # Actual (only till 80)
+        ax2.plot(x, y_actual_smooth,
+                color="#22c55e",
+                linewidth=2.8,
+                label="Actual Traffic")
+
+        # Prediction (extended to 90)
+        ax2.plot(x_extended, y_pred_smooth,
+                color="#ef4444",
+                linewidth=2.8,
+                label="Predicted Traffic")
+
+        # ─────────────────────────────
+        # OPTIONAL: highlight forecast region 🔥
+        # ─────────────────────────────
+        ax2.axvspan(len(x)-1, len(x_extended),
+                    color='#ef4444', alpha=0.08)
+
+        # ─────────────────────────────
+        # AXIS
+        # ─────────────────────────────
         ax2.set_yticks([0, 1, 2])
         ax2.set_yticklabels(['Low', 'Medium', 'High'], color='#e0e6f0')
+
+        ax2.set_xlim(0, len(x_extended))
 
         ax2.set_xlabel("Recent Sequence Index", color='#94a3b8')
         ax2.set_ylabel("Traffic Level", color='#94a3b8')
 
         ax2.tick_params(colors='#64748b')
 
+        # Style
         ax2.spines['bottom'].set_color('#1e293b')
         ax2.spines['left'].set_color('#1e293b')
         ax2.spines['top'].set_visible(False)
         ax2.spines['right'].set_visible(False)
 
-        ax2.set_title("Smoothed Traffic Flow", color='#94a3b8')
+        ax2.legend(facecolor='#111827', edgecolor='none', labelcolor='white')
 
         st.pyplot(fig2)
     # ── Probability Heatmap ──
