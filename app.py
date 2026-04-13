@@ -1378,7 +1378,7 @@ def modal_help():
 # ─────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────
-col_logo, col_title, col_opts = st.columns([0.5, 4.5, 4.5])
+col_logo, col_title, col_opts = st.columns([0.5, 4.2, 5.3])
 
 with col_title:
     st.markdown('<div class="hero-title">🌐 NetSense</div>', unsafe_allow_html=True)
@@ -1386,7 +1386,7 @@ with col_title:
 
 with col_opts:
     st.markdown("<br>", unsafe_allow_html=True)
-    b_learn, b_dev, b_help, b_dl = st.columns([1, 1.5, 1, 1.5])
+    b_learn, b_dev, b_help, b_dl = st.columns([0.8, 1.2, 0.8, 1.3])
     with b_learn:
         if st.button("📚 Learn", use_container_width=True):
             modal_learn()
@@ -1416,21 +1416,28 @@ with col_opts:
                 current_status = "HIGH CONGESTION!"
                 window_kb = "8"
             
-            if st.button("⚙️ Prepare PDF Report", use_container_width=True):
-                with st.spinner("Compiling PDF Graphs..."):
-                    pdf_bytes = generate_pdf_report(preds, probs, df_raw, window_kb, current_status, low, med, high, total_pkts)
-                    st.session_state['cached_pdf'] = pdf_bytes
-            
-            if 'cached_pdf' in st.session_state:
+            if 'pdf_ready' in st.session_state and st.session_state['pdf_ready']:
+                def reset_pdf_state():
+                    st.session_state['pdf_ready'] = False
+
                 st.download_button(
-                    label="📥 Download PDF",
+                    label="📥 Save PDF",
                     data=st.session_state['cached_pdf'],
                     file_name="netsense_report.pdf",
                     mime="application/pdf",
-                    use_container_width=True
+                    use_container_width=True,
+                    type="primary",
+                    on_click=reset_pdf_state
                 )
+            else:
+                if st.button("⚙️ PDF Report", use_container_width=True, type="primary"):
+                    with st.spinner("Compiling PDF Graphs..."):
+                        pdf_bytes = generate_pdf_report(preds, probs, df_raw, window_kb, current_status, low, med, high, total_pkts)
+                        st.session_state['cached_pdf'] = pdf_bytes
+                        st.session_state['pdf_ready'] = True
+                    st.rerun()
         else:
-            st.button("⚙️ Prepare PDF Report", use_container_width=True, disabled=True)
+            st.button("⚙️ PDF Report", use_container_width=True, disabled=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
