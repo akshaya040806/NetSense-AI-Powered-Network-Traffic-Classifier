@@ -10,9 +10,6 @@ import time
 import threading
 import collections
 import scapy
-import tempfile
-from fpdf import FPDF
-import os
 
 # Catch scapy import errors if missing gracefully for UI warning
 try:
@@ -31,91 +28,190 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────
+# THEME STATE & SIDEBAR TOGGLE
+# ─────────────────────────────────────────
+if 'theme' not in st.session_state:
+    st.session_state.theme = "Dark"
+
+with st.sidebar:
+    st.markdown("### 🌓 UI Settings")
+    is_light = st.toggle("Enable Light Mode", value=(st.session_state.theme == "Light"))
+    st.session_state.theme = "Light" if is_light else "Dark"
+
+# Theme Tokens
+if st.session_state.theme == "Dark":
+    BG_COLOR = "#0b0f1a"
+    APP_BG = "linear-gradient(135deg, #0b0f1a 0%, #0f172a 60%, #0b1120 100%)"
+    TEXT_COLOR = "#e0e6f0"
+    SUBTEXT_COLOR = "#94a3b8"
+    CARD_BG = "rgba(30, 41, 59, 0.8)"
+    CARD_BORDER = "rgba(56, 189, 248, 0.2)"
+    MODAL_BG = "rgba(15, 23, 42, 0.7)"
+    PIPE_BG = "#0b0f1a"
+    INPUT_BG = "rgba(15,23,42,0.6)"
+    PHASE_BOX_BG = "rgba(30,41,59,0.6)"
+    TITLE_COLOR = "#38bdf8"
+    BORDER_COLOR = "rgba(56, 189, 248, 0.2)"
+    SIDEBAR_BG = "#0f172a"
+    PLOT_BG = "#0b0f1a"
+    PLOT_CARD_BG = "#111827"
+    PLOT_BORDER_COLOR = "#1e293b"
+else:
+    BG_COLOR = "#f8fafc"
+    APP_BG = "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 60%, #e2e8f0 100%)"
+    TEXT_COLOR = "#0f172a"
+    SUBTEXT_COLOR = "#475569"
+    CARD_BG = "rgba(255, 255, 255, 0.9)"
+    CARD_BORDER = "rgba(56, 189, 248, 0.3)"
+    MODAL_BG = "rgba(248, 250, 252, 0.98)"
+    PIPE_BG = "#f1f5f9"
+    INPUT_BG = "rgba(255,255,255,0.8)"
+    PHASE_BOX_BG = "rgba(241,245,249,0.9)"
+    TITLE_COLOR = "#0284c7"
+    BORDER_COLOR = "rgba(2, 132, 199, 0.2)"
+    SIDEBAR_BG = "#f1f5f9"
+    PLOT_BG = "#f8fafc"
+    PLOT_CARD_BG = "#f1f5f9"
+    PLOT_BORDER_COLOR = "#e2e8f0"
+
+# ─────────────────────────────────────────
 # CUSTOM CSS
 # ─────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap');
 
-html, body, [class*="css"] {
+html, body, .stApp {{
     font-family: 'Inter', sans-serif;
-    background-color: #0b0f1a;
-    color: #e0e6f0;
-}
+    background-color: {BG_COLOR} !important;
+    color: {TEXT_COLOR} !important;
+}}
 
-.stApp {
-    background: linear-gradient(135deg, #0b0f1a 0%, #0f172a 60%, #0b1120 100%);
-}
+/* Sidebar Theme Override */
+[data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {{
+    background-color: {SIDEBAR_BG} !important;
+}}
 
-h1, h2, h3 {
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p, 
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3,
+[data-testid="stSidebar"] label, 
+[data-testid="stSidebar"] span {{
+    color: {TEXT_COLOR} !important;
+}}
+
+/* Sidebar Inputs (Text, Slider) */
+[data-testid="stSidebar"] input {{
+    background-color: {INPUT_BG} !important;
+    color: {TEXT_COLOR} !important;
+    border: 1px solid {BORDER_COLOR} !important;
+}}
+
+/* Main Area Widget Labels (Radio/Checkbox/Select) */
+[data-testid="stWidgetLabel"] p, 
+div[data-testid="stRadio"] label p,
+div[data-testid="stRadio"] label div,
+div[data-testid="stRadio"] label span {{
+    color: {TEXT_COLOR} !important;
+    font-weight: 500 !important;
+}}
+
+/* Fix for unreadable Radio labels seen in screenshot */
+div[data-testid="stRadio"] [role="radiogroup"] label span {{
+    color: {TEXT_COLOR} !important;
+}}
+
+/* Streamlit Tabs Styling */
+button[data-baseweb="tab"] {{
+    color: {SUBTEXT_COLOR} !important;
+}}
+button[data-baseweb="tab"][aria-selected="true"] {{
+    color: {TITLE_COLOR} !important;
+    border-bottom-color: {TITLE_COLOR} !important;
+}}
+
+/* Hide Streamlit Header and Footer */
+header {{ display: none !important; }}
+footer {{ display: none !important; }}
+[data-testid="stHeader"] {{ display: none !important; }}
+.stAppDeployButton {{ display: none !important; }}
+
+.stApp {{
+    background: {APP_BG};
+}}
+
+h1, h2, h3 {{
     font-family: 'Space Mono', monospace !important;
-}
+    color: {TEXT_COLOR} !important;
+}}
 
-.hero-title {
+.hero-title {{
     font-family: 'Space Mono', monospace;
     font-size: 2.8rem;
     font-weight: 700;
-    color: #38bdf8;
+    color: {TITLE_COLOR};
     letter-spacing: -1px;
     line-height: 1.1;
-}
+}}
 
-.hero-sub {
+.hero-sub {{
     font-size: 1rem;
-    color: #94a3b8;
+    color: {SUBTEXT_COLOR};
     margin-top: 0.4rem;
     font-weight: 300;
-}
+}}
 
-.metric-card {
-    background: rgba(30, 41, 59, 0.8);
-    border: 1px solid rgba(56, 189, 248, 0.2);
+.metric-card {{
+    background: {CARD_BG};
+    border: 1px solid {CARD_BORDER};
     border-radius: 12px;
     padding: 1.2rem 1.4rem;
     text-align: center;
     backdrop-filter: blur(8px);
-}
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}}
 
-.metric-value {
+.metric-value {{
     font-family: 'Space Mono', monospace;
     font-size: 2.2rem;
     font-weight: 700;
-    color: #38bdf8;
-}
+    color: {TITLE_COLOR};
+}}
 
-.metric-label {
+.metric-label {{
     font-size: 0.78rem;
-    color: #64748b;
+    color: {SUBTEXT_COLOR};
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-top: 4px;
-}
+}}
 
-.badge-0 { background:#1e3a5f; color:#60a5fa; border-radius:20px; padding:3px 12px; font-size:0.8rem; }
-.badge-1 { background:#1a3d2b; color:#34d399; border-radius:20px; padding:3px 12px; font-size:0.8rem; }
-.badge-2 { background:#3d1a1a; color:#f87171; border-radius:20px; padding:3px 12px; font-size:0.8rem; }
+.badge-0 {{ background:#1e3a5f; color:#60a5fa; border-radius:20px; padding:3px 12px; font-size:0.8rem; }}
+.badge-1 {{ background:#1a3d2b; color:#34d399; border-radius:20px; padding:3px 12px; font-size:0.8rem; }}
+.badge-2 {{ background:#3d1a1a; color:#f87171; border-radius:20px; padding:3px 12px; font-size:0.8rem; }}
 
-.section-header {
+.section-header {{
     font-family: 'Space Mono', monospace;
     font-size: 1.1rem;
-    color: #38bdf8;
-    border-bottom: 1px solid rgba(56,189,248,0.2);
+    color: {TITLE_COLOR} !important;
+    border-bottom: 1px solid {BORDER_COLOR};
     padding-bottom: 0.5rem;
     margin-bottom: 1rem;
-}
+}}
 
-.stFileUploader {
-    border: 2px dashed rgba(56,189,248,0.3) !important;
+.stFileUploader {{
+    border: 2px dashed {BORDER_COLOR} !important;
     border-radius: 12px !important;
-    background: rgba(15,23,42,0.6) !important;
-}
+    background: {INPUT_BG} !important;
+}}
 
-div[data-testid="stFileUploadDropzone"] {
-    background: rgba(15,23,42,0.5) !important;
+div[data-testid="stFileUploadDropzone"] {{
+    background: {INPUT_BG} !important;
     border-radius: 10px;
-}
+}}
 
-.stButton > button {
+.stButton > button {{
     background: linear-gradient(90deg, #0ea5e9, #38bdf8);
     color: #0b0f1a;
     font-family: 'Space Mono', monospace;
@@ -127,64 +223,64 @@ div[data-testid="stFileUploadDropzone"] {
     letter-spacing: 0.5px;
     white-space: nowrap;
     transition: all 0.2s;
-}
+}}
 
-.stButton > button:hover {
+.stButton > button:hover {{
     transform: translateY(-1px);
     box-shadow: 0 4px 20px rgba(56,189,248,0.4);
-}
+}}
 
-.info-box {
-    background: rgba(14,165,233,0.08);
-    border-left: 3px solid #38bdf8;
+.info-box {{
+    background: {PHASE_BOX_BG};
+    border-left: 3px solid {TITLE_COLOR};
     border-radius: 0 8px 8px 0;
     padding: 0.8rem 1.2rem;
     margin: 0.8rem 0;
     font-size: 0.88rem;
-    color: #94a3b8;
-}
+    color: {TEXT_COLOR} !important;
+}}
 
-div[data-testid="stDataFrame"] {
-    background: rgba(15,23,42,0.8);
+div[data-testid="stDataFrame"] {{
+    background: {CARD_BG};
     border-radius: 10px;
-}
+}}
 
-/* ── LEARN MODAL STYLES ── */
-.learn-section {
-    background: rgba(15, 23, 42, 0.7);
-    border: 1px solid rgba(56,189,248,0.15);
+/* ── MODAL STYLES ── */
+.learn-section {{
+    background: {MODAL_BG};
+    border: 1px solid {BORDER_COLOR};
     border-radius: 12px;
     padding: 1.4rem 1.6rem;
     margin-bottom: 1.2rem;
-}
-.learn-section h3 {
-    color: #38bdf8 !important;
+}}
+.learn-section h3 {{
+    color: {TITLE_COLOR} !important;
     font-family: 'Space Mono', monospace !important;
     font-size: 1.05rem !important;
     margin-top: 0 !important;
     margin-bottom: 0.7rem !important;
     letter-spacing: 0.5px;
-}
-.learn-section h4 {
+}}
+.learn-section h4 {{
     color: #7dd3fc !important;
     font-size: 0.92rem !important;
     margin-top: 1rem !important;
     margin-bottom: 0.3rem !important;
-}
-.learn-section p, .learn-section li {
-    color: #94a3b8;
+}}
+.learn-section p, .learn-section li {{
+    color: {SUBTEXT_COLOR};
     font-size: 0.88rem;
     line-height: 1.7;
-}
-.learn-section strong { color: #e0e6f0; }
-.learn-section code {
+}}
+.learn-section strong {{ color: {TEXT_COLOR}; }}
+.learn-section code {{
     background: rgba(56,189,248,0.1);
     color: #38bdf8;
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 0.82rem;
-}
-.concept-pill {
+}}
+.concept-pill {{
     display: inline-block;
     background: rgba(56,189,248,0.12);
     border: 1px solid rgba(56,189,248,0.3);
@@ -194,75 +290,75 @@ div[data-testid="stDataFrame"] {
     font-size: 0.78rem;
     font-family: 'Space Mono', monospace;
     margin: 2px 3px;
-}
-.phase-box {
-    background: rgba(30,41,59,0.6);
-    border-left: 3px solid #38bdf8;
+}}
+.phase-box {{
+    background: {PHASE_BOX_BG};
+    border-left: 3px solid {TITLE_COLOR};
     border-radius: 0 8px 8px 0;
     padding: 0.7rem 1rem;
     margin: 0.5rem 0;
-}
-.phase-box.green  { border-left-color: #34d399; }
-.phase-box.yellow { border-left-color: #fbbf24; }
-.phase-box.red    { border-left-color: #f87171; }
-.phase-box.purple { border-left-color: #a78bfa; }
-.phase-label {
+}}
+.phase-box.green  {{ border-left-color: #34d399; }}
+.phase-box.yellow {{ border-left-color: #fbbf24; }}
+.phase-box.red    {{ border-left-color: #f87171; }}
+.phase-box.purple {{ border-left-color: #a78bfa; }}
+.phase-label {{
     font-family: 'Space Mono', monospace;
     font-size: 0.8rem;
     font-weight: 700;
     margin-bottom: 3px;
-}
-.phase-box.green  .phase-label { color: #34d399; }
-.phase-box.yellow .phase-label { color: #fbbf24; }
-.phase-box.red    .phase-label { color: #f87171; }
-.phase-box.purple .phase-label { color: #a78bfa; }
-.ascii-art {
+}}
+.phase-box.green  .phase-label {{ color: #34d399; }}
+.phase-box.yellow .phase-label {{ color: #fbbf24; }}
+.phase-box.red    .phase-label {{ color: #f87171; }}
+.phase-box.purple .phase-label {{ color: #a78bfa; }}
+.ascii-art {{
     font-family: 'Space Mono', monospace;
     font-size: 0.72rem;
-    color: #64748b;
-    background: rgba(0,0,0,0.3);
+    color: {SUBTEXT_COLOR};
+    background: rgba(0,0,0,0.1);
     border-radius: 8px;
     padding: 0.8rem 1rem;
     line-height: 1.5;
     overflow-x: auto;
     white-space: pre;
-}
-.step-num {
+}}
+.step-num {{
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 22px; height: 22px;
-    background: #38bdf8;
-    color: #0b0f1a;
+    background: {TITLE_COLOR};
+    color: {BG_COLOR};
     border-radius: 50%;
     font-size: 0.75rem;
     font-weight: 700;
     font-family: 'Space Mono', monospace;
     flex-shrink: 0;
     margin-right: 8px;
-}
-.step-row {
+}}
+.step-row {{
     display: flex;
     align-items: flex-start;
     margin: 0.5rem 0;
-    color: #94a3b8;
+    color: {SUBTEXT_COLOR};
     font-size: 0.87rem;
     line-height: 1.6;
-}
-.learn-divider { border-color: rgba(56,189,248,0.1); margin: 0.2rem 0 1rem; }
+}}
+.learn-divider {{ border-color: {BORDER_COLOR}; margin: 0.2rem 0 1rem; }}
 
 /* ── HELP MODAL STYLES ── */
-.help-step-card {
+.help-step-card {{
     display: flex;
     gap: 1rem;
-    background: rgba(15, 23, 42, 0.7);
-    border: 1px solid rgba(56,189,248,0.12);
+    background: {MODAL_BG};
+    border: 1px solid {BORDER_COLOR};
     border-radius: 12px;
     padding: 1.1rem 1.3rem;
     margin-bottom: 0.8rem;
     align-items: flex-start;
-}
-.help-step-num {
+}}
+.help-step-num {{
     display: flex;
     align-items: center;
     justify-content: center;
@@ -276,62 +372,62 @@ div[data-testid="stDataFrame"] {
     font-family: 'Space Mono', monospace;
     flex-shrink: 0;
     margin-top: 2px;
-}
-.help-step-body { flex: 1; }
-.help-step-title {
+}}
+.help-step-body {{ flex: 1; }}
+.help-step-title {{
     font-family: 'Space Mono', monospace;
     font-size: 0.88rem;
     font-weight: 700;
-    color: #e0e6f0;
+    color: {TEXT_COLOR};
     margin-bottom: 0.35rem;
-}
-.help-step-desc {
+}}
+.help-step-desc {{
     font-size: 0.84rem;
-    color: #94a3b8;
+    color: {SUBTEXT_COLOR};
     line-height: 1.65;
-}
-.help-step-desc strong { color: #cbd5e1; }
-.help-step-desc code {
+}}
+.help-step-desc strong {{ color: {TEXT_COLOR}; }}
+.help-step-desc code {{
     background: rgba(56,189,248,0.1);
     color: #38bdf8;
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 0.8rem;
     font-family: 'Space Mono', monospace;
-}
-.help-tip {
+}}
+.help-tip {{
     background: rgba(14,165,233,0.07);
-    border: 1px solid rgba(56,189,248,0.2);
+    border: 1px solid {BORDER_COLOR};
     border-radius: 10px;
     padding: 0.75rem 1rem;
     margin: 0.5rem 0;
     font-size: 0.82rem;
-    color: #94a3b8;
+    color: {SUBTEXT_COLOR};
     line-height: 1.6;
-}
-.help-tip strong { color: #38bdf8; }
-.help-warn {
+}}
+.help-tip strong {{ color: #38bdf8; }}
+.help-warn {{
     background: rgba(251,191,36,0.07);
     border: 1px solid rgba(251,191,36,0.25);
     border-radius: 10px;
     padding: 0.75rem 1rem;
     margin: 0.5rem 0;
     font-size: 0.82rem;
-    color: #94a3b8;
+    color: {SUBTEXT_COLOR};
     line-height: 1.6;
-}
-.help-warn strong { color: #fbbf24; }
-.help-section-title {
+}}
+.help-warn strong {{ color: #fbbf24; }}
+.help-section-title {{
     font-family: 'Space Mono', monospace;
     font-size: 0.95rem;
     font-weight: 700;
-    color: #38bdf8;
-    border-bottom: 1px solid rgba(56,189,248,0.15);
+    color: {TITLE_COLOR};
+    border-bottom: 1px solid {BORDER_COLOR};
     padding-bottom: 0.45rem;
     margin: 1.2rem 0 0.8rem;
     letter-spacing: 0.4px;
-}
-.help-badge {
+}}
+.help-badge {{
     display: inline-block;
     border-radius: 6px;
     padding: 2px 10px;
@@ -340,29 +436,29 @@ div[data-testid="stDataFrame"] {
     font-weight: 700;
     margin-right: 6px;
     vertical-align: middle;
-}
-.help-badge.blue   { background:#1e3a5f; color:#60a5fa; }
-.help-badge.green  { background:#1a3d2b; color:#34d399; }
-.help-badge.red    { background:#3d1a1a; color:#f87171; }
-.help-badge.yellow { background:#3d2f0a; color:#fbbf24; }
-.help-faq {
-    background: rgba(30,41,59,0.5);
+}}
+.help-badge.blue   {{ background:#1e3a5f; color:#60a5fa; }}
+.help-badge.green  {{ background:#1a3d2b; color:#34d399; }}
+.help-badge.red    {{ background:#3d1a1a; color:#f87171; }}
+.help-badge.yellow {{ background:#3d2f0a; color:#fbbf24; }}
+.help-faq {{
+    background: {PHASE_BOX_BG};
     border-radius: 10px;
     padding: 0.8rem 1rem;
     margin: 0.5rem 0;
-}
-.help-faq-q {
+}}
+.help-faq-q {{
     font-size: 0.85rem;
     font-weight: 700;
     color: #7dd3fc;
     margin-bottom: 0.3rem;
-}
-.help-faq-a {
+}}
+.help-faq-a {{
     font-size: 0.82rem;
-    color: #94a3b8;
+    color: {SUBTEXT_COLOR};
     line-height: 1.6;
-}
-.help-faq-a strong { color: #cbd5e1; }
+}}
+.help-faq-a strong {{ color: {TEXT_COLOR}; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -430,10 +526,23 @@ def make_sequences(df, timesteps=10):
     return np.array(X), features
 
 
+@st.cache_resource
+def load_scaler():
+    import joblib
+    import os
+    if os.path.exists("scaler.pkl"):
+        return joblib.load("scaler.pkl")
+    return MinMaxScaler()
+
 def predict(model, X_seq):
-    scaler = MinMaxScaler()
+    scaler = load_scaler()
     nsamples, ntimesteps, nfeatures = X_seq.shape
-    X_scaled = scaler.fit_transform(X_seq.reshape(-1, nfeatures)).reshape(nsamples, ntimesteps, nfeatures)
+    
+    try:
+        X_scaled = scaler.transform(X_seq.reshape(-1, nfeatures)).reshape(nsamples, ntimesteps, nfeatures)
+    except:
+        X_scaled = scaler.fit_transform(X_seq.reshape(-1, nfeatures)).reshape(nsamples, ntimesteps, nfeatures)
+        
     tensor = torch.tensor(X_scaled, dtype=torch.float32)
     with torch.no_grad():
         outputs = model(tensor)
@@ -444,7 +553,21 @@ def predict(model, X_seq):
 from scapy.all import rdpcap
 
 def parse_pcap(file):
-    packets = rdpcap(file)
+    import tempfile
+    import os
+    
+    if hasattr(file, 'getbuffer'):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp:
+            tmp.write(file.getbuffer())
+            tmp_path = tmp.name
+        try:
+            packets = rdpcap(tmp_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    else:
+        packets = rdpcap(file)
+
     data = []
 
     for pkt in packets:
@@ -469,6 +592,273 @@ def parse_pcap(file):
 
     return pd.DataFrame(data)
 
+import tempfile
+import os
+from fpdf import FPDF
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def generate_pdf_report(preds, probs, df_raw, window_kb, current_status, low, med, high, total_pkts):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_fill_color(15, 23, 42) # #0f172a
+    pdf.rect(0, 0, 210, 297, "F")
+    pdf.set_text_color(224, 230, 240) # #e0e6f0
+    
+    pdf.set_font("Helvetica", style="B", size=16)
+    pdf.cell(0, 10, "NETSENSE TRAFFIC REPORT", ln=True, align="C")
+    pdf.set_font("Helvetica", size=12)
+    pdf.ln(5)
+    
+    # Centered Header text
+    pdf.set_font("Helvetica", style="B", size=13)
+    pdf.set_text_color(56, 189, 248) # #38bdf8
+    pdf.cell(0, 8, "REAL-TIME CONGESTION CONTROL", ln=True, align="C")
+    
+    # Status Pill
+    y_pill = pdf.get_y() + 2
+    pill_w = 56
+    if preds[-1] == 0:
+        pill_color = (34, 197, 94) # Green
+    elif preds[-1] == 1:
+        pill_color = (250, 204, 21) # Yellow
+    else:
+        pill_color = (239, 68, 68) # Red
+        
+    pdf.set_fill_color(*pill_color)
+    pdf.set_xy((210 - pill_w) / 2, y_pill)
+    pdf.rect((210 - pill_w) / 2, y_pill, pill_w, 8, "F")
+    pdf.set_text_color(255, 255, 255) # White text on pill
+    pdf.set_font("Helvetica", style="B", size=11)
+    pdf.cell(pill_w, 8, str(current_status), align="C")
+    pdf.ln(12)
+    
+    # TCP Window Dynamic Text
+    pdf.set_text_color(224, 230, 240)
+    pdf.set_font("Helvetica", size=11)
+    # manual center
+    w1 = pdf.get_string_width("Dynamic TCP Window Size (cwnd): ")
+    w2 = pdf.get_string_width(f"{window_kb} KB")
+    pdf.set_x((210 - (w1 + w2)) / 2)
+    pdf.cell(w1, 6, "Dynamic TCP Window Size (cwnd): ")
+    pdf.set_text_color(*pill_color)
+    pdf.set_font("Helvetica", style="B", size=11)
+    pdf.cell(w2, 6, f"{window_kb} KB", ln=True)
+    pdf.ln(8)
+    
+    # 4 Metric Cards
+    card_w = 42
+    card_h = 22
+    spacing = 4
+    start_x = (210 - (4 * card_w + 3 * spacing)) / 2
+    y_cards = pdf.get_y()
+    
+    cards_data = [
+        ("LIVE SEQUENCES", str(len(preds)), (56, 189, 248)),
+        ("LOW TRAFFIC", str(low), (96, 165, 250)),
+        ("MEDIUM TRAFFIC", str(med), (34, 197, 94)),
+        ("HIGH TRAFFIC", str(high), (239, 68, 68))
+    ]
+    
+    for i, (title, val, color) in enumerate(cards_data):
+        cx = start_x + (card_w + spacing) * i
+        # Draw Card Background
+        pdf.set_fill_color(17, 24, 39)
+        pdf.set_draw_color(30, 41, 59)
+        pdf.rect(cx, y_cards, card_w, card_h, "FD")
+        
+        # Draw Value
+        pdf.set_font("Helvetica", style="B", size=18)
+        pdf.set_text_color(*color)
+        pdf.set_xy(cx, y_cards + 4)
+        pdf.cell(card_w, 8, val, align="C")
+        
+        # Draw Title
+        pdf.set_font("Helvetica", size=7)
+        pdf.set_text_color(148, 163, 184)
+        pdf.set_xy(cx, y_cards + 14)
+        pdf.cell(card_w, 5, title, align="C")
+        
+    pdf.set_y(y_cards + card_h + 8)
+    
+    tmp_files = []
+    import numpy as np
+    
+    # ── TCP Simulation ──
+    sim_length = min(len(preds), 40)
+    sim_preds = preds[-sim_length:]
+    cwnd_history = []
+    events = []
+    cwnd, ssthresh = 1.0, 32.0
+    can_annotate = True
+    for t, p in enumerate(sim_preds):
+        cwnd_history.append(cwnd)
+        if cwnd >= 6.0: can_annotate = True
+        if p == 0:
+            cwnd = min(cwnd * 2, ssthresh) if cwnd * 2 <= ssthresh else cwnd + 1
+        elif p == 1:
+            ssthresh = max(2.0, cwnd // 2)
+            if can_annotate and cwnd >= 4.0:
+                events.append((t, cwnd_history[-1], f"3 Ack SSthresh = {int(ssthresh)}", '3ack'))
+                can_annotate = False
+            cwnd = ssthresh
+        elif p == 2:
+            ssthresh = max(2.0, cwnd // 2)
+            if can_annotate and cwnd >= 4.0:
+                events.append((t, cwnd_history[-1], f"Time Out SSthresh = {int(ssthresh)}", 'timeout'))
+                can_annotate = False
+            cwnd = 1.0
+            
+    fig_tcp, ax_tcp = plt.subplots(figsize=(8, 3.2))
+    fig_tcp.patch.set_facecolor('#0f172a')
+    ax_tcp.set_facecolor('#111827')
+    ax_tcp.plot(np.arange(len(cwnd_history)), cwnd_history, color='#0ea5e9', linewidth=2.5, marker='o', markersize=5, markerfacecolor='#ef4444')
+    for (x, y, label, ev_type) in events:
+        ax_tcp.plot(x, y, marker='o', color='#ef4444', markersize=8)
+        if label != "":
+            y_offset = -6 if ev_type == '3ack' else 6
+            x_offset = 1 if ev_type == 'timeout' else 0.5
+            ax_tcp.annotate(label, (x, y), xytext=(x+x_offset, y+y_offset), color='#e0e6f0', fontsize=10, fontweight='bold')
+            ax_tcp.vlines(x, ymin=0, ymax=y, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
+            ax_tcp.hlines(y, xmin=0, xmax=x, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
+    ax_tcp.set_title("TCP Congestion Window (AIMD Simulation)", color='#94a3b8', fontsize=12)
+    ax_tcp.set_xlabel("Transmission Round (Latest 40)", color='#94a3b8', fontsize=10)
+    ax_tcp.set_ylabel("Cwnd Size", color='#94a3b8', fontsize=10)
+    ax_tcp.tick_params(colors='#e0e6f0')
+    ax_tcp.spines['bottom'].set_color('#1e293b')
+    ax_tcp.spines['left'].set_color('#1e293b')
+    ax_tcp.spines['top'].set_visible(False)
+    ax_tcp.spines['right'].set_visible(False)
+    ax_tcp.grid(color='#1e293b', linestyle='-', linewidth=0.3, alpha=0.5)
+    
+    y_max_bound = max(cwnd_history) if len(cwnd_history) > 0 else 10
+    ax_tcp.set_ylim(0, y_max_bound + 15)
+    ax_tcp.set_xlim(0, len(cwnd_history))
+
+    pf1 = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+    fig_tcp.tight_layout()
+    fig_tcp.savefig(pf1, facecolor=fig_tcp.get_facecolor(), edgecolor='none')
+    plt.close(fig_tcp)
+    tmp_files.append(pf1)
+    
+    # ── Pie Chart ──
+    recent_preds = preds[-200:]
+    counts = [int(np.sum(np.array(recent_preds) == i)) for i in range(3)]
+    fig1, ax1 = plt.subplots(figsize=(4, 4))
+    fig1.patch.set_facecolor('#0f172a')
+    ax1.set_facecolor('#0f172a')
+    if sum(counts) > 0:
+        wedges, texts, autotexts = ax1.pie(counts, labels=["Low", "Medium", "High"], autopct='%1.1f%%', colors=["#60a5fa", "#34d399", "#f87171"], textprops={'color': '#e0e6f0', 'fontsize': 10}, wedgeprops={'edgecolor': '#0b0f1a', 'linewidth': 2})
+        for at in autotexts: at.set_color('#0b0f1a'); at.set_fontweight('bold')
+    ax1.set_title("Sequence Class Split", color='#94a3b8')
+    pf2 = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+    fig1.savefig(pf2, facecolor=fig1.get_facecolor(), edgecolor='none')
+    plt.close(fig1)
+    tmp_files.append(pf2)
+
+    # ── Timeline Forecast ──
+    trace_preds = preds[-80:]
+    x = np.arange(len(trace_preds))
+    actual = np.roll(trace_preds, 1)
+    actual[0] = trace_preds[0]
+    y_pred, y_actual = np.array(trace_preds, dtype=float), np.array(actual, dtype=float)
+    
+    last_trend = y_pred[-5:]
+    future = []
+    for _ in range(40):
+        next_val = np.clip(round(np.mean(last_trend)), 0, 2)
+        future.append(next_val)
+        last_trend = np.append(last_trend[1:], next_val)
+    y_pred_extended = np.concatenate([y_pred, np.array(future)])
+    x_extended = np.arange(len(y_pred_extended))
+
+    def smooth(y, window=7): return np.convolve(y, np.ones(window)/window, mode='same')
+    y_pred_smooth, y_actual_smooth = smooth(y_pred_extended) + 0.12, smooth(y_actual) - 0.12
+    
+    fig2, ax2 = plt.subplots(figsize=(8, 4))
+    fig2.patch.set_facecolor('#0f172a')
+    ax2.set_facecolor('#111827')
+    ax2.plot(x, y_actual_smooth, color="#22c55e", linewidth=2.8, label="Actual Traffic")
+    ax2.plot(x_extended, y_pred_smooth, color="#ef4444", linewidth=2.8, label="Predicted Traffic")
+    ax2.axvspan(len(x)-1, len(x_extended), color='#ef4444', alpha=0.08)
+    ax2.set_yticks([0, 1, 2])
+    ax2.set_yticklabels(['Low', 'Medium', 'High'], color='#e0e6f0')
+    ax2.set_xlim(0, len(x_extended))
+    ax2.set_xlabel("Recent Sequence Index", color='#94a3b8')
+    ax2.set_ylabel("Traffic Level", color='#94a3b8')
+    ax2.tick_params(colors='#64748b')
+    ax2.spines['bottom'].set_color('#1e293b')
+    ax2.spines['left'].set_color('#1e293b')
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    ax2.legend(facecolor='#111827', edgecolor='none', labelcolor='white')
+    ax2.set_title("Prediction vs Actual Timeline", color='#94a3b8')
+    
+    pf3 = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+    fig2.tight_layout()
+    fig2.savefig(pf3, facecolor=fig2.get_facecolor(), edgecolor='none')
+    plt.close(fig2)
+    tmp_files.append(pf3)
+    
+    # ── Explicit Exact Y Positioning to prevent FPDF gaps ──
+    y_tcp = y_cards + card_h + 12
+    pdf.image(pf1, x=10, y=y_tcp, w=190, h=70) # TCP Window
+    
+    y_pie = y_tcp + 70 + 8
+    pdf.image(pf2, x=6, y=y_pie, w=74, h=74) # Pie Chart
+    pdf.image(pf3, x=82, y=y_pie + 2, w=122, h=70) # Timeline Chart
+    
+    pdf.set_y(y_pie + 76)
+    
+    # ── Heatmap ──
+    pdf.add_page()
+    pdf.set_fill_color(15, 23, 42)
+    pdf.rect(0, 0, 210, 297, "F")
+    if probs is not None and len(probs) > 0:
+        fig5, ax5 = plt.subplots(figsize=(8, 2.5))
+        fig5.patch.set_facecolor('#0f172a')
+        ax5.set_facecolor('#0f172a')
+        prob_sample = np.array(probs[-60:]).T
+        sns.heatmap(prob_sample, ax=ax5, cmap="YlOrRd", yticklabels=["Low", "Med", "High"], linewidths=0.3, linecolor='#0b0f1a')
+        ax5.set_title("Probability Heatmap (Latest 60)", color='#94a3b8')
+        ax5.set_xlabel("Recent Sequence Index", color='#94a3b8')
+        ax5.tick_params(colors='#e0e6f0')
+        pf5 = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+        fig5.tight_layout()
+        fig5.savefig(pf5, facecolor=fig5.get_facecolor(), edgecolor='none')
+        plt.close(fig5)
+        tmp_files.append(pf5)
+        pdf.image(pf5, x=10, w=190)
+        pdf.ln(5)
+    
+    # ── Packet dist ──
+    if df_raw is not None and 'Length' in df_raw.columns:
+        fig6, ax6 = plt.subplots(figsize=(8, 3))
+        fig6.patch.set_facecolor('#0f172a')
+        ax6.set_facecolor('#111827')
+        ax6.hist(df_raw['Length'].dropna(), bins=60, color='#818cf8', edgecolor='#0b0f1a', alpha=0.85)
+        ax6.set_title("Packet Length Distribution", color='#94a3b8')
+        ax6.set_xlabel("Packet Length (bytes)", color='#94a3b8')
+        ax6.set_ylabel("Count", color='#94a3b8')
+        ax6.tick_params(colors='#64748b')
+        ax6.spines['bottom'].set_color('#1e293b')
+        ax6.spines['left'].set_color('#1e293b')
+        ax6.spines['top'].set_visible(False)
+        ax6.spines['right'].set_visible(False)
+        pf6 = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+        fig6.tight_layout()
+        fig6.savefig(pf6, facecolor=fig6.get_facecolor(), edgecolor='none')
+        plt.close(fig6)
+        tmp_files.append(pf6)
+        pdf.image(pf6, x=10, w=190)
+        
+    for pf in tmp_files:
+        if os.path.exists(pf):
+            try: os.remove(pf)
+            except: pass
+            
+    return bytes(pdf.output())
+
 # ─────────────────────────────────────────
 # DIALOGS
 # ─────────────────────────────────────────
@@ -485,40 +875,45 @@ def get_img_src(filepath):
 
 @st.dialog("👥 Developed by", width="large")
 def modal_developed_by():
+    # Detect current theme's colors for modal
+    m_text = "#e0e6f0" if st.session_state.theme == "Dark" else "#0f172a"
+    m_sub = "#94a3b8" if st.session_state.theme == "Dark" else "#475569"
+    m_card = "rgba(255,255,255,0.05)" if st.session_state.theme == "Dark" else "rgba(0,0,0,0.05)"
+    
     st.html(f"""
     <div style="text-align:center;">
-      <h2 style="margin-bottom:10px; color:#e0e6f0; font-family:'Space Mono', monospace;">Developed by</h2>
+      <h2 style="margin-bottom:10px; color:{m_text}; font-family:'Space Mono', monospace;">Developed by</h2>
       <div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;">
-        <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
+        <div style="background:{m_card}; padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
           <img src="{get_img_src('kanika.png')}" alt="Kanika Rathore" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
-          <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
+          <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>Kanika Rathore</strong><br>
-            <span style="color:#94a3b8;">24BYB1080</span>
+            <span style="color:{m_sub};">24BYB1080</span>
           </p>
         </div>
-        <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
+        <div style="background:{m_card}; padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
           <img src="{get_img_src('harishh.png')}" alt="R Harish" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
-          <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
+          <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>R Harish</strong><br>
-            <span style="color:#94a3b8;">24BYB1159</span>
+            <span style="color:{m_sub};">24BYB1159</span>
           </p>
         </div>
-        <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
+        <div style="background:{m_card}; padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
           <img src="{get_img_src('akshaya.jpeg')}" alt="Akshaya H" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
-          <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
+          <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>Akshaya H</strong><br>
-            <span style="color:#94a3b8;">24BYB1124</span>
+            <span style="color:{m_sub};">24BYB1124</span>
           </p>
         </div>
       </div>
       <hr style="margin:25px 0;border-color:rgba(255,255,255,0.1)">
-      <h2 style="margin-bottom:10px; color:#e0e6f0; font-family:'Space Mono', monospace;">Guided by</h2>
+      <h2 style="margin-bottom:10px; color:{m_text}; font-family:'Space Mono', monospace;">Guided by</h2>
       <div style="display:flex;justify-content:center;">
-        <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:15px; width:200px; transition:all 0.3s ease;">
+        <div style="background:{m_card}; padding:15px; border-radius:15px; width:200px; transition:all 0.3s ease;">
           <img src="{get_img_src('swamisir.jpg')}" alt="Swaminathan A" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:2px solid #10b981;">
-          <p style="margin-top:8px;font-size:14px;color:#e0e6f0">
+          <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>Dr. Swaminathan A</strong><br>
-            <span style="color:#94a3b8;">Faculty, Computer Networks</span>
+            <span style="color:{m_sub};">Faculty, Computer Networks</span>
           </p>
         </div>
       </div>
@@ -527,8 +922,10 @@ def modal_developed_by():
 
 @st.dialog("📚 Learn — Network Traffic & TCP Congestion Control", width="large")
 def modal_learn():
-    st.html("""
-    <div style="color:#e0e6f0; max-width:100%;">
+    m_text = TEXT_COLOR
+    m_sub = SUBTEXT_COLOR
+    st.html(f"""
+    <div style="color:{m_text}; max-width:100%;">
 
     <!-- ── INTRO ── -->
     <div class="learn-section">
@@ -621,11 +1018,11 @@ cwnd = 32 →  [P]×32 in flight        (very fast — risky if network is full)
         </p>
         <div class="phase-box green">
             <div class="phase-label">ADDITIVE INCREASE ↗</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">When things are going well (ACKs arriving), increase cwnd by +1 each round. Grow slowly and steadily.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">When things are going well (ACKs arriving), increase cwnd by +1 each round. Grow slowly and steadily.</div>
         </div>
         <div class="phase-box red">
             <div class="phase-label">MULTIPLICATIVE DECREASE ↘↘</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">When congestion is detected, cut cwnd aggressively — either halve it (3 duplicate ACKs) or reset to 1 (timeout). React fast to give the network relief.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">When congestion is detected, cut cwnd aggressively — either halve it (3 duplicate ACKs) or reset to 1 (timeout). React fast to give the network relief.</div>
         </div>
 
         <hr class="learn-divider">
@@ -681,15 +1078,15 @@ Round 4: cwnd = 8   (doubled)
         <p>The LSTM classifies every 10-packet window into one of three states, and the AIMD simulation responds:</p>
         <div class="phase-box green">
             <div class="phase-label">🔵 LOW TRAFFIC (Class 0)</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Network clear → run Slow Start or Congestion Avoidance → cwnd grows.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Network clear → run Slow Start or Congestion Avoidance → cwnd grows.</div>
         </div>
         <div class="phase-box yellow">
             <div class="phase-label">🟡 MEDIUM TRAFFIC (Class 1)</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Mild congestion detected → simulate 3 Duplicate ACKs → ssthresh = cwnd/2, cwnd = ssthresh.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Mild congestion detected → simulate 3 Duplicate ACKs → ssthresh = cwnd/2, cwnd = ssthresh.</div>
         </div>
         <div class="phase-box red">
             <div class="phase-label">🔴 HIGH CONGESTION (Class 2)</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Severe congestion detected → simulate Timeout → ssthresh = cwnd/2, cwnd = 1 (full reset!).</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Severe congestion detected → simulate Timeout → ssthresh = cwnd/2, cwnd = 1 (full reset!).</div>
         </div>
     </div>
 
@@ -735,15 +1132,15 @@ RNN:    [hidden1]→ [hidden2]→ [hidden3]→ [hidden4] → OUTPUT (Low/Med/Hig
         </p>
         <div class="phase-box green">
             <div class="phase-label">🟢 INPUT GATE</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Decides what new information from the current packet to write into memory.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Decides what new information from the current packet to write into memory.</div>
         </div>
         <div class="phase-box purple">
             <div class="phase-label">🟣 FORGET GATE</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Decides what old information to erase from memory. (e.g., "the burst from 8 packets ago is no longer relevant")</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Decides what old information to erase from memory. (e.g., "the burst from 8 packets ago is no longer relevant")</div>
         </div>
         <div class="phase-box yellow">
             <div class="phase-label">🟡 OUTPUT GATE</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Decides what part of memory to use for the current prediction.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Decides what part of memory to use for the current prediction.</div>
         </div>
         <div class="ascii-art">       ┌────────────────────────────────────┐
        │  LSTM Cell                         │
@@ -759,19 +1156,19 @@ RNN:    [hidden1]→ [hidden2]→ [hidden3]→ [hidden4] → OUTPUT (Low/Med/Hig
         <p>NetSense uses a <strong>2-layer stacked LSTM</strong> built with PyTorch:</p>
         <div class="phase-box" style="border-left-color:#38bdf8;">
             <div class="phase-label" style="color:#38bdf8;">LAYER 1 — LSTM (hidden size: 64)</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Takes the 10-packet sequence (5 features each) and learns low-level temporal patterns — like "packet size is growing rapidly".</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Takes the 10-packet sequence (5 features each) and learns low-level temporal patterns — like "packet size is growing rapidly".</div>
         </div>
         <div class="phase-box" style="border-left-color:#818cf8;">
             <div class="phase-label" style="color:#818cf8;">DROPOUT (30%) — Regularisation</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Randomly disables 30% of neurons during training so the network can't memorise training data. Forces it to generalise.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Randomly disables 30% of neurons during training so the network can't memorise training data. Forces it to generalise.</div>
         </div>
         <div class="phase-box" style="border-left-color:#38bdf8;">
             <div class="phase-label" style="color:#38bdf8;">LAYER 2 — LSTM (hidden size: 32)</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">Takes the output of Layer 1 and learns higher-level patterns — like "this is a sustained burst consistent with high congestion".</div>
+            <div style="font-size:0.85rem;color:{m_sub};">Takes the output of Layer 1 and learns higher-level patterns — like "this is a sustained burst consistent with high congestion".</div>
         </div>
         <div class="phase-box" style="border-left-color:#34d399;">
             <div class="phase-label" style="color:#34d399;">FULLY CONNECTED LAYERS → Softmax</div>
-            <div style="font-size:0.85rem;color:#94a3b8;">32 → 3 neurons. Outputs a probability for each class: P(Low), P(Medium), P(High). The highest one wins.</div>
+            <div style="font-size:0.85rem;color:{m_sub};">32 → 3 neurons. Outputs a probability for each class: P(Low), P(Medium), P(High). The highest one wins.</div>
         </div>
     </div>
 
@@ -793,28 +1190,28 @@ RNN:    [hidden1]→ [hidden2]→ [hidden3]→ [hidden4] → OUTPUT (Low/Med/Hig
             <tbody>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                     <td style="color:#7dd3fc; padding:6px 8px; font-family:'Space Mono',monospace;"><code>packet_count</code></td>
-                    <td style="color:#94a3b8; padding:6px 8px;">Number of packets seen</td>
-                    <td style="color:#94a3b8; padding:6px 8px;">High counts suggest burst activity</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">Number of packets seen</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">High counts suggest burst activity</td>
                 </tr>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                     <td style="color:#7dd3fc; padding:6px 8px; font-family:'Space Mono',monospace;"><code>avg_size</code></td>
-                    <td style="color:#94a3b8; padding:6px 8px;">Average packet length (bytes)</td>
-                    <td style="color:#94a3b8; padding:6px 8px;">Large packets = bulk transfers; small = control traffic</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">Average packet length (bytes)</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">Large packets = bulk transfers; small = control traffic</td>
                 </tr>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                     <td style="color:#7dd3fc; padding:6px 8px; font-family:'Space Mono',monospace;"><code>size_variation</code></td>
-                    <td style="color:#94a3b8; padding:6px 8px;">How much packet size changes between consecutive packets</td>
-                    <td style="color:#94a3b8; padding:6px 8px;">High variation = mixed traffic types (e.g., streaming + ACKs)</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">How much packet size changes between consecutive packets</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">High variation = mixed traffic types (e.g., streaming + ACKs)</td>
                 </tr>
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                     <td style="color:#7dd3fc; padding:6px 8px; font-family:'Space Mono',monospace;"><code>packet_rate</code></td>
-                    <td style="color:#94a3b8; padding:6px 8px;">Rolling sum of bytes (intensity over last 2 packets)</td>
-                    <td style="color:#94a3b8; padding:6px 8px;">High rate = heavy load on the network link</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">Rolling sum of bytes (intensity over last 2 packets)</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">High rate = heavy load on the network link</td>
                 </tr>
                 <tr>
                     <td style="color:#7dd3fc; padding:6px 8px; font-family:'Space Mono',monospace;"><code>rate_change</code></td>
-                    <td style="color:#94a3b8; padding:6px 8px;">How much the packet rate changes step to step</td>
-                    <td style="color:#94a3b8; padding:6px 8px;">Sudden spikes in rate_change signal the start of congestion</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">How much the packet rate changes step to step</td>
+                    <td style="color:{m_sub}; padding:6px 8px;">Sudden spikes in rate_change signal the start of congestion</td>
                 </tr>
             </tbody>
         </table>
@@ -828,14 +1225,14 @@ RNN:    [hidden1]→ [hidden2]→ [hidden3]→ [hidden4] → OUTPUT (Low/Med/Hig
     <!-- ── CHAPTER 5: END-TO-END FLOW ── -->
     <div class="learn-section">
         <h3>🔄 Chapter 5 — How NetSense Works End-to-End</h3>
-        <div class="step-row"><span class="step-num">1</span><div><strong style="color:#e0e6f0;">Packet Capture</strong> — Scapy listens on your network interface on a background thread, intercepting every TCP/UDP packet in real time (or you upload a <code>.pcap</code> file recorded earlier).</div></div>
-        <div class="step-row"><span class="step-num">2</span><div><strong style="color:#e0e6f0;">Feature Extraction</strong> — Each raw packet is parsed: timestamp, length, protocol. Then the 5 derived features are computed per packet.</div></div>
-        <div class="step-row"><span class="step-num">3</span><div><strong style="color:#e0e6f0;">Sequence Creation</strong> — Packets are grouped into overlapping windows of 10. Window 1 = packets 1–10, Window 2 = packets 2–11, etc. Each window = one LSTM input.</div></div>
-        <div class="step-row"><span class="step-num">4</span><div><strong style="color:#e0e6f0;">Normalisation</strong> — Features in each window are scaled to [0,1] so the LSTM receives consistent input magnitudes.</div></div>
-        <div class="step-row"><span class="step-num">5</span><div><strong style="color:#e0e6f0;">LSTM Inference</strong> — The trained PyTorch model processes the window through 2 LSTM layers + fully connected layers and outputs three probabilities: P(Low), P(Medium), P(High).</div></div>
-        <div class="step-row"><span class="step-num">6</span><div><strong style="color:#e0e6f0;">Classification</strong> — The class with the highest probability wins: <span style="color:#60a5fa;">Low</span> / <span style="color:#34d399;">Medium</span> / <span style="color:#f87171;">High</span>.</div></div>
-        <div class="step-row"><span class="step-num">7</span><div><strong style="color:#e0e6f0;">AIMD Simulation</strong> — Each prediction drives the TCP congestion window simulation: Low → grow cwnd, Medium → halve it (3 Dup ACKs), High → reset to 1 (Timeout). The graph in the Dashboard tab shows this live.</div></div>
-        <div class="step-row"><span class="step-num">8</span><div><strong style="color:#e0e6f0;">Visualisation</strong> — The Live Monitor tab shows the animated traffic pipe and real-time metrics. The Dashboard tab shows the AIMD graph, probability heatmap, class distribution pie, and packet length histogram.</div></div>
+        <div class="step-row"><span class="step-num">1</span><div><strong style="color:{m_text};">Packet Capture</strong> — Scapy listens on your network interface on a background thread, intercepting every TCP/UDP packet in real time (or you upload a <code>.pcap</code> file recorded earlier).</div></div>
+        <div class="step-row"><span class="step-num">2</span><div><strong style="color:{m_text};">Feature Extraction</strong> — Each raw packet is parsed: timestamp, length, protocol. Then the 5 derived features are computed per packet.</div></div>
+        <div class="step-row"><span class="step-num">3</span><div><strong style="color:{m_text};">Sequence Creation</strong> — Packets are grouped into overlapping windows of 10. Window 1 = packets 1–10, Window 2 = packets 2–11, etc. Each window = one LSTM input.</div></div>
+        <div class="step-row"><span class="step-num">4</span><div><strong style="color:{m_text};">Normalisation</strong> — Features in each window are scaled to [0,1] so the LSTM receives consistent input magnitudes.</div></div>
+        <div class="step-row"><span class="step-num">5</span><div><strong style="color:{m_text};">LSTM Inference</strong> — The trained PyTorch model processes the window through 2 LSTM layers + fully connected layers and outputs three probabilities: P(Low), P(Medium), P(High).</div></div>
+        <div class="step-row"><span class="step-num">6</span><div><strong style="color:{m_text};">Classification</strong> — The class with the highest probability wins: <span style="color:#60a5fa;">Low</span> / <span style="color:#34d399;">Medium</span> / <span style="color:#f87171;">High</span>.</div></div>
+        <div class="step-row"><span class="step-num">7</span><div><strong style="color:{m_text};">AIMD Simulation</strong> — Each prediction drives the TCP congestion window simulation: Low → grow cwnd, Medium → halve it (3 Dup ACKs), High → reset to 1 (Timeout). The graph in the Dashboard tab shows this live.</div></div>
+        <div class="step-row"><span class="step-num">8</span><div><strong style="color:{m_text};">Visualisation</strong> — The Live Monitor tab shows the animated traffic pipe and real-time metrics. The Dashboard tab shows the AIMD graph, probability heatmap, class distribution pie, and packet length histogram.</div></div>
         <div class="ascii-art">Network Interface / PCAP File
         ↓
   [Scapy Packet Capture]
@@ -881,15 +1278,17 @@ RNN:    [hidden1]→ [hidden2]→ [hidden3]→ [hidden4] → OUTPUT (Low/Med/Hig
 
 @st.dialog("❓ Help — How to Use NetSense", width="large")
 def modal_help():
-    st.html("""
-    <div style="color:#e0e6f0; max-width:100%; font-family:'Inter',sans-serif;">
+    m_text = TEXT_COLOR
+    m_sub = SUBTEXT_COLOR
+    st.html(f"""
+    <div style="color:{m_text}; max-width:100%; font-family:'Inter',sans-serif;">
 
     <!-- INTRO -->
     <div style="background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.2); border-radius:12px; padding:1rem 1.3rem; margin-bottom:1.2rem;">
         <div style="font-family:'Space Mono',monospace; font-size:0.95rem; color:#38bdf8; font-weight:700; margin-bottom:0.4rem;">👋 Quick Start Guide</div>
-        <div style="font-size:0.85rem; color:#94a3b8; line-height:1.65;">
-            NetSense has two ways to analyse network traffic — <strong style="color:#e0e6f0;">Live Capture</strong> (watch your real network right now)
-            and <strong style="color:#e0e6f0;">Upload a PCAP file</strong> (analyse a saved recording). Pick whichever suits you below.
+        <div style="font-size:0.85rem; color:{m_sub}; line-height:1.65;">
+            NetSense has two ways to analyse network traffic — <strong style="color:{m_text};">Live Capture</strong> (watch your real network right now)
+            and <strong style="color:{m_text};">Upload a PCAP file</strong> (analyse a saved recording). Pick whichever suits you below.
         </div>
     </div>
 
@@ -1114,7 +1513,7 @@ def modal_help():
 # ─────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────
-col_logo, col_title, col_opts = st.columns([0.5, 4.5, 4.5])
+col_logo, col_title, col_opts = st.columns([0.5, 4.2, 5.3])
 
 with col_title:
     st.markdown('<div class="hero-title">🌐 NetSense</div>', unsafe_allow_html=True)
@@ -1122,7 +1521,7 @@ with col_title:
 
 with col_opts:
     st.markdown("<br>", unsafe_allow_html=True)
-    b_learn, b_dev, b_help = st.columns([1, 1.5, 1])
+    b_learn, b_dev, b_help, b_dl = st.columns([0.8, 1.2, 0.8, 1.3])
     with b_learn:
         if st.button("📚 Learn", use_container_width=True):
             modal_learn()
@@ -1132,6 +1531,48 @@ with col_opts:
     with b_help:
         if st.button("❓ Help", use_container_width=True):
             modal_help()
+    with b_dl:
+        if 'preds' in st.session_state and st.session_state['preds'] is not None and len(st.session_state['preds']) > 0 and 'df_raw' in st.session_state and st.session_state['df_raw'] is not None:
+            preds = list(st.session_state['preds'])
+            df_raw = st.session_state['df_raw']
+            probs = st.session_state.get('probs', [])
+            total_pkts = len(df_raw)
+            low = int(sum(1 for p in preds if p == 0))
+            med = int(sum(1 for p in preds if p == 1))
+            high = int(sum(1 for p in preds if p == 2))
+            latest = preds[-1]
+            if latest == 0:
+                current_status = "LOW TRAFFIC (CLEAR)"
+                window_kb = "64"
+            elif latest == 1:
+                current_status = "MEDIUM TRAFFIC"
+                window_kb = "32"
+            else:
+                current_status = "HIGH CONGESTION!"
+                window_kb = "8"
+            
+            if 'pdf_ready' in st.session_state and st.session_state['pdf_ready']:
+                def reset_pdf_state():
+                    st.session_state['pdf_ready'] = False
+
+                st.download_button(
+                    label="📥 Save PDF",
+                    data=st.session_state['cached_pdf'],
+                    file_name="netsense_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                    on_click=reset_pdf_state
+                )
+            else:
+                if st.button("⚙️ PDF Report", use_container_width=True, type="primary"):
+                    with st.spinner("Compiling PDF Graphs..."):
+                        pdf_bytes = generate_pdf_report(preds, probs, df_raw, window_kb, current_status, low, med, high, total_pkts)
+                        st.session_state['cached_pdf'] = pdf_bytes
+                        st.session_state['pdf_ready'] = True
+                    st.rerun()
+        else:
+            st.button("⚙️ PDF Report", use_container_width=True, disabled=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1148,9 +1589,23 @@ with st.sidebar:
     st.markdown("🟢 **1** — Medium Traffic")
     st.markdown("🔴 **2** — High Traffic")
     st.markdown("---")
-    st.markdown("### ℹ️ Features Used")
-    for f in ['packet_count', 'avg_size', 'size_variation', 'packet_rate', 'rate_change']:
-        st.markdown(f"• `{f}`")
+    st.markdown("### 🚀 How to Use NetSense")
+    st.markdown("""
+    **Step 1: Choose Mode**  
+    Go to **Live Monitoring** and select **🔴 Live Capture** or **📂 Upload PCAP**.
+
+    **Step 2: Start Data Flow**  
+    Click **▶ Start** (needs root) or upload your file. Wait for the logic to accumulate **10 packets**.
+
+    **Step 3: Monitor Live**  
+    Watch the **Traffic Pipe** and real-time metrics update every 2.5s.
+
+    **Step 4: Check Dashboard**  
+    Switch to the **Dashboard** tab for the AIMD simulation and class heatmaps.
+
+    **Step 5: Export PDF**  
+    Click the **📄 Save PDF Report** button in the header once analysis is ready.
+    """)
 
 
 # ─────────────────────────────────────────
@@ -1208,7 +1663,14 @@ mode = None
 # TAB 1 — LIVE MONITORING
 # ══════════════════════════════════════════
 with tab1:
-    mode = st.radio("Select Data Source", ["🔴 Live Capture (Npcap)", "📂 Upload PCAP File"],horizontal=True)
+    prev_mode = st.session_state.get('last_mode')
+    mode = st.radio("Select Data Source", ["🔴 Live Capture (Npcap)", "📂 Upload PCAP File"], horizontal=True)
+    st.session_state['last_mode'] = mode
+    
+    # Clear PDF cache if we switch modes
+    if prev_mode and prev_mode != mode:
+        st.session_state['pdf_ready'] = False
+        st.session_state['cached_pdf'] = None
     
     if mode == "🔴 Live Capture (Npcap)":
         st.markdown('<div class="section-header">Live Network Traffic Interception</div>', unsafe_allow_html=True)
@@ -1244,7 +1706,7 @@ with tab1:
             err = packet_buffer[-1]['Error']
             if "PermissionError" in err:
                 st.error("🛑 **CRITICAL ERROR: OPERATION NOT PERMITTED**")
-                st.warning("Scapy requires root/administrator privileges to open raw sockets for live interception.\\n\\nPlease stop this server and rerun it with:\\n`sudo /home/xded11/Github/cnproject/venv/bin/streamlit run app.py`")
+                st.warning("Scapy requires root/administrator privileges to open raw sockets for live interception.\n\nPlease stop this server and rerun it with:\n`sudo /home/xded11/Github/cnproject/venv/bin/streamlit run app.py`")
             elif "ScapyNotInstalled" in err:
                 st.error("🛑 **CRITICAL ERROR: Scapy Not Found**")
                 st.warning("Please install scapy (`pip install scapy`) before running live capture.")
@@ -1329,7 +1791,7 @@ with tab1:
             }}
             .traffic-pipe-{unique_id} {{
             height: 35px;
-            background: #0b0f1a;
+            background: {PIPE_BG};
             border-radius: 18px;
             border: 2px solid rgba(255,255,255,0.05);
             position: relative;
@@ -1366,12 +1828,12 @@ with tab1:
             .window-size-label {{
             font-family: 'Space Mono', monospace;
             font-size: 1.05rem;
-            color: #e0e6f0;
+            color: {TEXT_COLOR};
             margin-top: 20px;
             }}
             </style>
-            <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(56,189,248,0.2); border-radius: 12px; padding: 2rem; text-align: center; margin-top: 2rem;">
-            <div style="font-family: 'Space Mono', monospace; font-size: 1.2rem; color: #38bdf8; margin-bottom: 15px; letter-spacing: 1px; text-transform: uppercase;">Real-Time Congestion Control</div>
+            <div style="background: {CARD_BG}; border: 1px solid {CARD_BORDER}; border-radius: 12px; padding: 2rem; text-align: center; margin-top: 2rem;">
+            <div style="font-family: 'Space Mono', monospace; font-size: 1.2rem; color: {TITLE_COLOR}; margin-bottom: 15px; letter-spacing: 1px; text-transform: uppercase;">Real-Time Congestion Control</div>
             <div class="status-badge-{unique_id}">{status}</div>
             <br>
             <div class="window-size-label">
@@ -1382,7 +1844,7 @@ with tab1:
             <div class="data-stream-{unique_id}"></div>
             </div>
             </div>
-            <div style="font-size: 0.9rem; color: #94a3b8; font-family: 'Inter', sans-serif;">When the AI detects high traffic, the simulated TCP connection throttles the window size to prevent packet collision and loss.</div>
+            <div style="font-size: 0.9rem; color: {SUBTEXT_COLOR}; font-family: 'Inter', sans-serif;">When the AI detects high traffic, the simulated TCP connection throttles the window size to prevent packet collision and loss.</div>
             </div>
             """
             st.markdown(html_string, unsafe_allow_html=True)
@@ -1431,175 +1893,53 @@ with tab1:
     elif mode == "📂 Upload PCAP File":
 
         st.markdown('<div class="section-header">PCAP File Analysis</div>', unsafe_allow_html=True)
-        st.write("✅ YOU ARE IN PCAP MODE")  # 🔥 DEBUG LINE
 
         uploaded_pcap = st.file_uploader("Upload PCAP file", type=["pcap", "pcapng"])
 
         if uploaded_pcap is not None:
-
-            st.success("File uploaded!")
-
-            df_raw = parse_pcap(uploaded_pcap)
-
-            if df_raw.empty:
-                st.error("No packets found")
-                st.stop()
-
-            df_proc = preprocess(df_raw)
-            X_seq, features = make_sequences(df_proc, timesteps)
-
-            if len(X_seq) == 0:
-                st.warning("Not enough data")
-                st.stop()
-
-            model = load_model(model_path)
-            preds, probs = predict(model, X_seq)
-
-            st.session_state['preds'] = preds
-            st.session_state['probs'] = probs
-            st.session_state['df_proc'] = df_proc
-            st.session_state['df_raw'] = df_raw
-
-            st.success("✅ PCAP processed!")
-            st.info("👉 Go to Dashboard tab")
+            # Check if this file is already processed to avoid redundant work
+            if st.session_state.get('last_uploaded_file') != uploaded_pcap.name:
+                with st.status(f"Parsing {uploaded_pcap.name}...") as status:
+                    df_raw = parse_pcap(uploaded_pcap)
+                    
+                    if df_raw.empty:
+                        st.error("No valid packets found in PCAP.")
+                        st.stop()
+                        
+                    df_proc = preprocess(df_raw)
+                    X_seq, features = make_sequences(df_proc, timesteps)
+                    
+                    if len(X_seq) == 0:
+                        st.warning(f"Not enough packets (need >{timesteps}) to form a sequence.")
+                        st.stop()
+                        
+                    status.update(label="Running AI Classifier...", state="running")
+                    model = load_model(model_path)
+                    preds, probs = predict(model, X_seq)
+                    
+                    st.session_state['preds'] = preds
+                    st.session_state['probs'] = probs
+                    st.session_state['df_proc'] = df_proc
+                    st.session_state['df_raw'] = df_raw
+                    st.session_state['last_uploaded_file'] = uploaded_pcap.name
+                    st.session_state['pdf_ready'] = False # New data means new report needed
+                    
+                st.success(f"✅ {uploaded_pcap.name} processed successfully!")
+                st.info("👉 Switch to the **Dashboard** tab for the full report.")
+                st.rerun() # Force update header PDF button
+            else:
+                st.success(f"✅ {uploaded_pcap.name} is loaded.")
+                if st.button("🗑️ Clear Data & Upload New"):
+                    del st.session_state['last_uploaded_file']
+                    for key in ['df_raw', 'df_proc', 'preds', 'probs', 'pdf_ready', 'cached_pdf']:
+                        if key in st.session_state: del st.session_state[key]
+                    st.rerun()
 
     
 # ══════════════════════════════════════════
 # TAB 2 — DASHBOARD
 # ══════════════════════════════════════════
 with tab2:
-    preds = st.session_state.get('preds')
-    probs = st.session_state.get('probs')
-    df_raw = st.session_state.get('df_raw')
-    
-    if preds is not None:
-        preds = np.array(preds)
-
-    if probs is None or len(probs) == 0:
-        probs = np.zeros((1, 3))
-    else:
-        probs = np.array(probs)
-    
-    def generate_pdf_report(preds, probs, df_raw, window_kb, current_status,low, med, high, total_pkts):
-
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=10)
-        pdf.add_page()
-
-        # Title
-        pdf.set_font("Arial", "B", 16)
-        pdf.cell(0, 10, "NetSense Traffic Report", ln=True)
-
-        pdf.set_font("Arial", size=10)
-        pdf.cell(0, 8, f"Status: {current_status}", ln=True)
-        pdf.cell(0, 8, f"Total Packets: {total_pkts}", ln=True)
-        pdf.cell(0, 8, f"Low: {low} | Medium: {med} | High: {high}", ln=True)
-
-        # Create temp folder
-        temp_dir = tempfile.gettempdir()
-        
-        
-        # 📊 1. Prediction Timeline
-        fig1, ax1 = plt.subplots(figsize=(10, 4))
-
-        ax1.plot(preds, linewidth=2, color='#1f77b4')
-
-        ax1.set_title("Prediction Timeline", fontsize=14)
-        ax1.set_xlabel("Time")
-        ax1.set_ylabel("Traffic Level")
-
-        ax1.grid(True, linestyle='--', alpha=0.6)
-
-        plt.tight_layout()
-
-        img1 = os.path.join(temp_dir, "timeline.png")
-        plt.savefig(img1, dpi=300, bbox_inches='tight')
-        plt.close(fig1)
-
-        pdf.image(img1, w=190)
-
-
-        # 📊 2. Class Distribution
-        fig2, ax2 = plt.subplots(figsize=(6, 6))
-
-        colors = ['#4CAF50', '#FFC107', '#F44336']
-
-        ax2.pie(
-            [low, med, high],
-            labels=["Low", "Medium", "High"],
-            autopct="%1.1f%%",
-            colors=colors,
-            startangle=90
-        )
-
-        ax2.set_title("Traffic Distribution", fontsize=14)
-
-        plt.tight_layout()
-
-        img2 = os.path.join(temp_dir, "pie.png")
-        plt.savefig(img2, dpi=300, bbox_inches='tight')
-        plt.close(fig2)
-
-        pdf.add_page()
-        pdf.image(img2, w=160)
-
-
-        # 📊 3. Heatmap (probabilities)
-        fig3, ax3 = plt.subplots(figsize=(10, 4))
-
-        cax = ax3.imshow(probs, aspect='auto')
-
-        fig3.colorbar(cax)
-
-        ax3.set_title("Prediction Probabilities", fontsize=14)
-        ax3.set_xlabel("Classes")
-        ax3.set_ylabel("Samples")
-
-        plt.tight_layout()
-
-        img3 = os.path.join(temp_dir, "heatmap.png")
-        plt.savefig(img3, dpi=300, bbox_inches='tight')
-        plt.close(fig3)
-
-        pdf.add_page()
-        pdf.image(img3, w=190)
-
-        # Output PDF as bytes
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-
-        return pdf_bytes
-        #st.markdown("### 📄 Export Dashboard")
-        
-    full_pdf_bytes = None
-    
-    if preds is None or len(preds) == 0:
-        st.warning("⚠️ No predictions yet. Go to Live Monitoring first.")
-        st.stop()
-
-    if st.button("📄 Generate Full Report"):
-        try:
-            full_pdf_bytes = generate_pdf_report(
-                preds,
-                probs,
-                df_raw,
-                window_kb=64,
-                current_status="Final Report",
-                low=int((preds == 0).sum()),
-                med=int((preds == 1).sum()),
-                high=int((preds == 2).sum()),
-                total_pkts=len(df_raw) if df_raw is not None else 0
-            )
-
-            st.download_button(
-                label="📥 Download Report",
-                data=full_pdf_bytes,
-                file_name="netsense_report.pdf",
-                mime="application/pdf"
-            )
-
-        except Exception as e:
-            st.error(f"PDF error: {e}")
-            
     
     if 'preds' not in st.session_state:
         st.session_state['preds'] = []
@@ -1674,8 +2014,8 @@ with tab2:
             cwnd = 1.0
             
     fig_tcp, ax_tcp = plt.subplots(figsize=(10, 4))
-    fig_tcp.patch.set_facecolor('#0f172a')
-    ax_tcp.set_facecolor('#111827')
+    fig_tcp.patch.set_facecolor(BG_COLOR)
+    ax_tcp.set_facecolor(PLOT_CARD_BG)
     
     x_vals = np.arange(len(cwnd_history))
     ax_tcp.plot(x_vals, cwnd_history, color='#0ea5e9', linewidth=2.5, marker='o', markersize=5, markerfacecolor='#ef4444')
@@ -1686,13 +2026,13 @@ with tab2:
         if label != "":
             y_offset = -6 if ev_type == '3ack' else 6
             x_offset = 1 if ev_type == 'timeout' else 0.5
-            ax_tcp.annotate(label, (x, y), xytext=(x+x_offset, y+y_offset), color='#e0e6f0', fontsize=10, fontweight='bold')
+            ax_tcp.annotate(label, (x, y), xytext=(x+x_offset, y+y_offset), color=TEXT_COLOR, fontsize=10, fontweight='bold')
             
-            ax_tcp.vlines(x, ymin=0, ymax=y, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
-            ax_tcp.hlines(y, xmin=0, xmax=x, colors='#94a3b8', linestyles='dotted', alpha=0.9, linewidth=1.5)
+            ax_tcp.vlines(x, ymin=0, ymax=y, colors=SUBTEXT_COLOR, linestyles='dotted', alpha=0.9, linewidth=1.5)
+            ax_tcp.hlines(y, xmin=0, xmax=x, colors=SUBTEXT_COLOR, linestyles='dotted', alpha=0.9, linewidth=1.5)
         
-    ax_tcp.set_xlabel("Transmission Round (Latest 40)", color='#94a3b8', fontsize=11, fontweight='bold')
-    ax_tcp.set_ylabel("Congestion Window Size", color='#94a3b8', fontsize=11, fontweight='bold')
+    ax_tcp.set_xlabel("Transmission Round (Latest 40)", color=SUBTEXT_COLOR, fontsize=11, fontweight='bold')
+    ax_tcp.set_ylabel("Congestion Window Size", color=SUBTEXT_COLOR, fontsize=11, fontweight='bold')
     
     y_max_bound = max(cwnd_history)
     y_max_bound = y_max_bound + 15 if y_max_bound > 0 else 40
@@ -1700,12 +2040,12 @@ with tab2:
     ax_tcp.set_xlim(0, len(cwnd_history))
     
     ax_tcp.set_xticks(np.arange(0, len(cwnd_history)+1, 2))
-    ax_tcp.tick_params(colors='#e0e6f0', labelsize=10)
-    ax_tcp.spines['bottom'].set_color('#1e293b')
-    ax_tcp.spines['left'].set_color('#1e293b')
+    ax_tcp.tick_params(colors=TEXT_COLOR, labelsize=10)
+    ax_tcp.spines['bottom'].set_color(PLOT_BORDER_COLOR)
+    ax_tcp.spines['left'].set_color(PLOT_BORDER_COLOR)
     ax_tcp.spines['top'].set_visible(False)
     ax_tcp.spines['right'].set_visible(False)
-    ax_tcp.grid(color='#1e293b', linestyle='-', linewidth=0.3, alpha=0.5)
+    ax_tcp.grid(color=PLOT_BORDER_COLOR, linestyle='-', linewidth=0.3, alpha=0.5)
     
     st.pyplot(fig_tcp, clear_figure=True)
     plt.close()
@@ -1724,16 +2064,16 @@ with tab2:
         colors = ["#60a5fa", "#34d399", "#f87171"]
 
         fig1, ax1 = plt.subplots(figsize=(4.5, 4))
-        fig1.patch.set_facecolor('#0f172a')
-        ax1.set_facecolor('#0f172a')
+        fig1.patch.set_facecolor(BG_COLOR)
+        ax1.set_facecolor(BG_COLOR)
         
         # Guard against empty pie charts pulling errors
         if sum(counts) > 0:
             wedges, texts, autotexts = ax1.pie(
                 counts, labels=labels, autopct='%1.1f%%',
                 colors=colors, startangle=140,
-                textprops={'color': '#e0e6f0', 'fontsize': 10},
-                wedgeprops={'edgecolor': '#0b0f1a', 'linewidth': 2}
+                textprops={'color': TEXT_COLOR, 'fontsize': 10},
+                wedgeprops={'edgecolor': PLOT_CARD_BG, 'linewidth': 2}
             )
             for at in autotexts:
                 at.set_color('#0b0f1a')
@@ -1744,8 +2084,8 @@ with tab2:
 
         st.markdown("**Prediction vs Actual Timeline (Latest 80 + Forecast)**")
         fig2, ax2 = plt.subplots(figsize=(5, 4))
-        fig2.patch.set_facecolor('#0f172a')
-        ax2.set_facecolor('#111827')
+        fig2.patch.set_facecolor(BG_COLOR)
+        ax2.set_facecolor(PLOT_CARD_BG)
 
         # ─────────────────────────────
         # DATA
@@ -1824,22 +2164,22 @@ with tab2:
         # AXIS
         # ─────────────────────────────
         ax2.set_yticks([0, 1, 2])
-        ax2.set_yticklabels(['Low', 'Medium', 'High'], color='#e0e6f0')
+        ax2.set_yticklabels(['Low', 'Medium', 'High'], color=TEXT_COLOR)
 
         ax2.set_xlim(0, len(x_extended))
 
-        ax2.set_xlabel("Recent Sequence Index", color='#94a3b8')
-        ax2.set_ylabel("Traffic Level", color='#94a3b8')
+        ax2.set_xlabel("Recent Sequence Index", color=SUBTEXT_COLOR)
+        ax2.set_ylabel("Traffic Level", color=SUBTEXT_COLOR)
 
-        ax2.tick_params(colors='#64748b')
+        ax2.tick_params(colors=SUBTEXT_COLOR)
 
         # Style
-        ax2.spines['bottom'].set_color('#1e293b')
-        ax2.spines['left'].set_color('#1e293b')
+        ax2.spines['bottom'].set_color(PLOT_BORDER_COLOR)
+        ax2.spines['left'].set_color(PLOT_BORDER_COLOR)
         ax2.spines['top'].set_visible(False)
         ax2.spines['right'].set_visible(False)
 
-        ax2.legend(facecolor='#111827', edgecolor='none', labelcolor='white')
+        ax2.legend(facecolor=PLOT_CARD_BG, edgecolor='none', labelcolor=TEXT_COLOR)
 
         st.pyplot(fig2)
     # ── Probability Heatmap ──
@@ -1847,15 +2187,15 @@ with tab2:
     st.markdown('<div class="section-header">Probability Heatmap (Latest 60 sequences)</div>', unsafe_allow_html=True)
 
     fig5, ax5 = plt.subplots(figsize=(12, 2.5))
-    fig5.patch.set_facecolor('#0f172a')
-    ax5.set_facecolor('#0f172a')
+    fig5.patch.set_facecolor(BG_COLOR)
+    ax5.set_facecolor(BG_COLOR)
     prob_sample = probs[-60:].T
     sns.heatmap(prob_sample, ax=ax5, cmap="YlOrRd", cbar=True,
                 xticklabels=5, yticklabels=["Low", "Med", "High"],
-                linewidths=0.3, linecolor='#0b0f1a')
-    ax5.set_xlabel("Recent Sequence Index", color='#94a3b8')
-    ax5.tick_params(colors='#e0e6f0')
-    ax5.set_title("Class Probabilities Flow", color='#94a3b8')
+                linewidths=0.3, linecolor=BG_COLOR)
+    ax5.set_xlabel("Recent Sequence Index", color=SUBTEXT_COLOR)
+    ax5.tick_params(colors=TEXT_COLOR)
+    ax5.set_title("Class Probabilities Flow", color=SUBTEXT_COLOR)
     st.pyplot(fig5, clear_figure=True)
     plt.close()
 
@@ -1864,14 +2204,14 @@ with tab2:
     st.markdown('<div class="section-header">Packet Length Distribution</div>', unsafe_allow_html=True)
 
     fig6, ax6 = plt.subplots(figsize=(10, 3))
-    fig6.patch.set_facecolor('#0f172a')
-    ax6.set_facecolor('#111827')
-    ax6.hist(df_raw['Length'].dropna(), bins=60, color='#818cf8', edgecolor='#0b0f1a', alpha=0.85)
-    ax6.set_xlabel("Packet Length (bytes)", color='#94a3b8')
-    ax6.set_ylabel("Count", color='#94a3b8')
-    ax6.tick_params(colors='#64748b')
-    ax6.spines['bottom'].set_color('#1e293b')
-    ax6.spines['left'].set_color('#1e293b')
+    fig6.patch.set_facecolor(BG_COLOR)
+    ax6.set_facecolor(PLOT_CARD_BG)
+    ax6.hist(df_raw['Length'].dropna(), bins=60, color='#818cf8', edgecolor=BG_COLOR, alpha=0.85)
+    ax6.set_xlabel("Packet Length (bytes)", color=SUBTEXT_COLOR)
+    ax6.set_ylabel("Count", color=SUBTEXT_COLOR)
+    ax6.tick_params(colors=SUBTEXT_COLOR)
+    ax6.spines['bottom'].set_color(PLOT_BORDER_COLOR)
+    ax6.spines['left'].set_color(PLOT_BORDER_COLOR)
     ax6.spines['top'].set_visible(False)
     ax6.spines['right'].set_visible(False)
     st.pyplot(fig6, clear_figure=True)
