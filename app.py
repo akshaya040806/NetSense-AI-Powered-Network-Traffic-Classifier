@@ -885,21 +885,21 @@ def modal_developed_by():
       <h2 style="margin-bottom:10px; color:{m_text}; font-family:'Space Mono', monospace;">Developed by</h2>
       <div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;">
         <div style="background:{m_card}; padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
-          <img src="{get_img_src('kanika.png')}" alt="Kanika Rathore" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
+          <img src="{get_img_src('images/thisiskanika.jpeg')}" alt="Kanika Rathore" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
           <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>Kanika Rathore</strong><br>
             <span style="color:{m_sub};">24BYB1080</span>
           </p>
         </div>
         <div style="background:{m_card}; padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
-          <img src="{get_img_src('harishh.png')}" alt="R Harish" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
+          <img src="{get_img_src('images/thisisharish.jpeg')}" alt="R Harish" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
           <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>R Harish</strong><br>
             <span style="color:{m_sub};">24BYB1159</span>
           </p>
         </div>
         <div style="background:{m_card}; padding:15px; border-radius:15px; width:180px; transition:all 0.3s ease;">
-          <img src="{get_img_src('akshaya.jpeg')}" alt="Akshaya H" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
+          <img src="{get_img_src('images/thisisakshaya.jpeg')}" alt="Akshaya H" style="width:150px;height:150px;border-radius:50%;object-fit:cover;border:2px solid #38bdf8;">
           <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>Akshaya H</strong><br>
             <span style="color:{m_sub};">24BYB1124</span>
@@ -910,7 +910,7 @@ def modal_developed_by():
       <h2 style="margin-bottom:10px; color:{m_text}; font-family:'Space Mono', monospace;">Guided by</h2>
       <div style="display:flex;justify-content:center;">
         <div style="background:{m_card}; padding:15px; border-radius:15px; width:200px; transition:all 0.3s ease;">
-          <img src="{get_img_src('swamisir.jpg')}" alt="Swaminathan A" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:2px solid #10b981;">
+          <img src="{get_img_src('images/thisisswami.jpg')}" alt="Swaminathan A" style="width:160px;height:160px;border-radius:50%;object-fit:cover;border:2px solid #10b981;">
           <p style="margin-top:8px;font-size:14px;color:{m_text}">
             <strong>Dr. Swaminathan A</strong><br>
             <span style="color:{m_sub};">Faculty, Computer Networks</span>
