@@ -1692,7 +1692,30 @@ with tab1:
         if 'live_buffer' not in st.session_state:
             st.session_state['live_buffer'] = []
         chunk_size = 5
-        new_data = pd.DataFrame({"Timestamp": np.arange(chunk_size),"Length": np.random.randint(60, 1500, chunk_size),"Protocol": np.random.choice(["TCP", "UDP"], chunk_size)})
+                # 🎯 Controlled traffic simulation
+        if 'traffic_mode' not in st.session_state:
+            st.session_state['traffic_mode'] = "low"
+        
+        # Change traffic every 40 packets
+        if len(st.session_state['live_buffer']) % 40 == 0:
+            st.session_state['traffic_mode'] = np.random.choice(["low", "medium", "high"])
+        
+        mode_sim = st.session_state['traffic_mode']
+        
+        if mode_sim == "low":
+            lengths = np.random.normal(200, 15, chunk_size)
+        
+        elif mode_sim == "medium":
+            lengths = np.random.normal(600, 60, chunk_size)
+        
+        else:
+            lengths = np.random.normal(1200, 150, chunk_size)
+        
+        new_data = pd.DataFrame({
+            "Timestamp": np.arange(chunk_size),
+            "Length": np.clip(lengths, 60, 1500),
+            "Protocol": np.random.choice(["TCP", "UDP"], chunk_size)
+        })
         st.session_state['live_buffer'].extend(new_data.to_dict('records'))
         df = pd.DataFrame(st.session_state['live_buffer'])
         st.write("📦 Packets received:", len(df))
