@@ -1711,19 +1711,25 @@ with tab1:
         
         else:
             lengths = np.random.normal(1200, 150, chunk_size)
-        
-        new_data = pd.DataFrame({
-            # simulate realistic time gaps
+
+        # simulate realistic time gaps
         if 'current_time' not in st.session_state:
-             st.session_state['current_time'] = 0
-        time_gaps = np.random.uniform(0.05, 0.2, chunk_size)  # seconds between packets
+            st.session_state['current_time'] = 0
+        
+        time_gaps = np.random.uniform(0.05, 0.2, chunk_size)
+        
         timestamps = []
         for gap in time_gaps:
-           st.session_state['current_time'] += gap
-           timestamps.append(st.session_state['current_time']),
+            st.session_state['current_time'] += gap
+            timestamps.append(st.session_state['current_time'])
+        
+        # NOW create dataframe (clean)
+        new_data = pd.DataFrame({
+            "Timestamp": timestamps,
             "Length": np.clip(lengths, 60, 1500),
             "Protocol": np.random.choice(["TCP", "UDP"], chunk_size)
         })
+        
         st.session_state['live_buffer'].extend(new_data.to_dict('records'))
         df = pd.DataFrame(st.session_state['live_buffer'])
         st.write("📦 Packets received:", len(df))
