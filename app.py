@@ -1599,15 +1599,10 @@ with st.sidebar:
     model_path = st.text_input("Model Path (.pt)", value="tcp_udp_lstm_pytorch.pt")
     timesteps = st.slider("Sequence Timesteps", 5, 20, 10)
     st.markdown("---")
-    st.markdown("### 📘 Label Guide")
-    st.markdown("🔵 **0** — Low Traffic")
-    st.markdown("🟢 **1** — Medium Traffic")
-    st.markdown("🔴 **2** — High Traffic")
-    st.markdown("---")
     st.markdown("### 🚀 How to Use NetSense")
     st.markdown("""
     **Step 1: Choose Mode**  
-    Go to **Live Monitoring** and select **🔴 Live Capture** or **📂 Upload PCAP**.
+    Go to **Live Monitoring** and select **📂 Upload PCAP**.
 
     **Step 2: Start Data Flow**  
     Click **▶ Start** (needs root) or upload your file. Wait for the logic to accumulate **10 packets**.
@@ -1679,7 +1674,7 @@ mode = None
 # ══════════════════════════════════════════
 with tab1:
     prev_mode = st.session_state.get('last_mode')
-    mode = st.radio("Select Data Source", ["🔴 Live Capture (Npcap)", "📂 Upload PCAP File"], horizontal=True)
+    mode = st.radio("Select Data Source", ["📂 Upload PCAP File"], horizontal=True)
     st.session_state['last_mode'] = mode
     
     # Clear PDF cache if we switch modes
