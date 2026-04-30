@@ -1706,7 +1706,51 @@ with tab1:
             else:
                 preds, probs = predict(model, X_seq)
                 latest = preds[-1]
-                st.success(f"✅ Prediction Running → {LABEL_NAMES[latest]}")
+                # 🎯 TRAFFIC STATUS BAR
+                status = latest
+                
+                if status == 0:
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(90deg, #22c55e, #16a34a);
+                        padding: 12px;
+                        border-radius: 10px;
+                        text-align: center;
+                        font-weight: bold;
+                        color: white;
+                        font-size: 16px;">
+                        🟢 NETWORK CLEAR — LOW TRAFFIC
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                elif status == 1:
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(90deg, #facc15, #eab308);
+                        padding: 12px;
+                        border-radius: 10px;
+                        text-align: center;
+                        font-weight: bold;
+                        color: black;
+                        font-size: 16px;">
+                        🟡 MODERATE TRAFFIC — WATCH FOR CONGESTION
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                elif status == 2:
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(90deg, #ef4444, #dc2626);
+                        padding: 14px;
+                        border-radius: 10px;
+                        text-align: center;
+                        font-weight: bold;
+                        color: white;
+                        font-size: 17px;
+                        box-shadow: 0 0 20px rgba(239,68,68,0.5);">
+                        🔴 HIGH CONGESTION — NETWORK UNDER LOAD
+                    </div>
+                    """, unsafe_allow_html=True)
 
         import time
         time.sleep(1)
