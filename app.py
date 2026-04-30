@@ -520,7 +520,7 @@ def preprocess(df):
     df['packet_count'] = 1
     df['avg_size'] = df['Length']
     df['size_variation'] = df['Length'].diff().fillna(0)
-    df['packet_rate'] = df['Length'].rolling(5).sum().fillna(0)
+    df['packet_rate'] = df['Length'].rolling(5).mean().fillna(0)
     df['rate_change'] = df['packet_rate'].diff().fillna(0)
     return df
 
@@ -1712,6 +1712,8 @@ with tab1:
         else:
             lengths = np.random.normal(1200, 150, chunk_size)
 
+        lengths += np.random.normal(0, 50, chunk_size)
+
         # simulate realistic time gaps
         if 'current_time' not in st.session_state:
             st.session_state['current_time'] = 0
@@ -1726,7 +1728,7 @@ with tab1:
         # NOW create dataframe (clean)
         new_data = pd.DataFrame({
             "Timestamp": timestamps,
-            "Length": np.clip(lengths, 60, 1500),
+            "Length": np.clip(lengths, 60, 800),
             "Protocol": np.random.choice(["TCP", "UDP"], chunk_size)
         })
         
@@ -1737,7 +1739,11 @@ with tab1:
             st.warning(f"⏳ Streaming packets... {len(df)}/11")
         else:
             df_processed = preprocess(df)
+            st.write("DEBUG DATA 👇")
+            st.write(df_processed[['Length', 'packet_rate', 'rate_change']].tail())
+            
             X_seq, _ = make_sequences(df_processed)
+            
             if len(X_seq) == 0:
                 st.warning("Not enough sequences yet...")
             else:
