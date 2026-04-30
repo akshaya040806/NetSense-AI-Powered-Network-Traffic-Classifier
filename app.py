@@ -1799,6 +1799,7 @@ with tab1:
                     """, unsafe_allow_html=True)
 
         import time
+        
         time.sleep(1)
         st.rerun()
         
